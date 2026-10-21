@@ -252,7 +252,8 @@ def style_dataframe(df):
             if '🔺' in val: return 'color: #ff4b4b; font-weight: bold;'
             elif '🔻' in val: return 'color: #00c853; font-weight: bold;'
         return ''
-    if hasattr(df.style, "map"): return df.style.map(color_trend, subset=['收盤價(涨跌)'])
+    # ⭐️ 修正 KeyError 筆誤 (將 涨 修正為 漲)
+    if hasattr(df.style, "map"): return df.style.map(color_trend, subset=['收盤價(漲跌)'])
     else: return df.style.applymap(color_trend, subset=['收盤價(漲跌)'])
 
 # 2. 抓取單一股票完整數據畫圖用
@@ -417,13 +418,12 @@ if options:
                     activecolor="#cccccc",
                     font=dict(color="#007AFF"),
                     yanchor="bottom",
-                    y=1.02, # ⭐️ 將按鈕貼齊圖表正上方
+                    y=1.02, 
                     xanchor="left",
                     x=0.0
                 )
             )
 
-            # ⭐️ 核心修正：加大圖表高度與底部留白，並將圖例 (Legend) 移至整個圖表的正下方
             fig.update_layout(
                 height=750, 
                 margin=dict(l=10, r=10, t=50, b=120), 
@@ -431,14 +431,13 @@ if options:
                 legend=dict(
                     orientation="h", 
                     yanchor="top", 
-                    y=-0.1,  # 移至圖表正下方
+                    y=-0.1,  
                     xanchor="center", 
                     x=0.5
                 ), 
                 hovermode="x unified"
             )
             
-            # 關閉 plotly 預設的右上角 logo，讓畫面更乾淨
             st.plotly_chart(fig, use_container_width=True, config={'displaylogo': False})
 else:
     st.warning("⚠️ 自選股清單目前為空，請從左上角側邊欄加入股票。")
