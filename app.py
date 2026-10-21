@@ -6,13 +6,20 @@ from plotly.subplots import make_subplots
 
 st.set_page_config(page_title="雙指標波段系統", page_icon="📈", layout="wide")
 
+# ⭐️ 初始化 Session State，用來記憶使用者點擊了表格中的哪一檔股票
+if 'selected_ticker' not in st.session_state:
+    st.session_state.selected_ticker = None
+
 # --- 側邊欄：自選股動態管理 ---
 st.sidebar.header("⚙️ 自選股管理")
 st.sidebar.markdown("請依照 `代碼,名稱` 的格式輸入，每行一檔標的。若要刪除，直接將該行清空即可。")
 
-# 包含您所有最新提供的大名單
 DEFAULT_LIST = """0050.TW,元大台灣50
+00752.TW,中信中國50
+00880B.TW,野村澳州公債
+00725B.TW,國泰投資級公司債
 2812.TW,台中銀
+5386.TWO,青雲
 1101.TW,台泥
 2330.TW,台積電
 3008.TW,大立光
@@ -213,7 +220,6 @@ with col1:
         st.cache_data.clear()
 
 with st.spinner("運算技術指標與量能中..."):
-    # 渲染大盤燈號儀表板
     market_trend = get_market_trend(tf_interval, tf_period)
     if market_trend:
         st.markdown(
@@ -226,31 +232,45 @@ with st.spinner("運算技術指標與量能中..."):
             """, unsafe_allow_html=True
         )
 
-    # 渲染個股表格
     df_signals = analyze_signals(tf_interval, tf_period, ma_short_label, ma_long_label, WATCHLIST)
     if not df_signals.empty:
-        
-        # ⭐️ 加入搜尋功能
         search_query = st.text_input("🔍 快速搜尋標的 (輸入代碼或名稱)：", "")
         if search_query:
-            # 根據名稱或代碼過濾
             display_df = df_signals[
                 df_signals['代碼'].str.contains(search_query, case=False, na=False) | 
                 df_signals['名稱'].str.contains(search_query, case=False, na=False)
-            ]
+            ].reset_index(drop=True)
         else:
             display_df = df_signals
 
         st.subheader("📌 重點動態追蹤 (量能與位階濾網)")
-        action_df = display_df[display_df['最新動態'] != "-"]
+        action_df = display_df[display_df['最新動態'] != "-"].reset_index(drop=True)
         
         if action_df.empty: 
             st.info("目前無交叉訊號，或無符合搜尋條件的標的。")
         else: 
-            st.dataframe(style_dataframe(action_df), use_container_width=True)
+            # ⭐️ 重點動態表格：加入點擊連動
+            action_event = st.dataframe(
+                style_dataframe(action_df), 
+                use_container_width=True,
+                on_select="rerun",          
+                selection_mode="single-row" 
+            )
+            if action_event.selection.rows:
+                selected_row_idx = action_event.selection.rows[0]
+                st.session_state.selected_ticker = action_df.iloc[selected_row_idx]['代碼']
             
         st.subheader(f"📊 全部自選股狀態 ({timeframe_option})")
-        st.dataframe(style_dataframe(display_df), use_container_width=True)
+        # ⭐️ 全部自選股表格：加入點擊連動
+        display_event = st.dataframe(
+            style_dataframe(display_df), 
+            use_container_width=True,
+            on_select="rerun",
+            selection_mode="single-row"
+        )
+        if display_event.selection.rows:
+            selected_row_idx = display_event.selection.rows[0]
+            st.session_state.selected_ticker = display_df.iloc[selected_row_idx]['代碼']
 
 # --- 互動 K 線圖區塊 ---
 st.divider()
@@ -258,8 +278,19 @@ st.subheader("📉 價量與指標複合分析圖")
 
 options = [f"{k} - {v}" for k, v in WATCHLIST.items()]
 if options:
-    selected_option = st.selectbox("請選擇要查看的標的：", options)
+    # ⭐️ 判斷下拉選單預設值，讓它自動跟隨表格點擊的標的
+    default_idx = 0
+    if st.session_state.selected_ticker:
+        for i, opt in enumerate(options):
+            if opt.startswith(st.session_state.selected_ticker):
+                default_idx = i
+                break
+
+    selected_option = st.selectbox("請選擇要查看的標的：", options, index=default_idx)
     selected_ticker = selected_option.split(" - ")[0]
+    
+    # 為了確保下次手動選單變更不會卡住，同步更新 session state
+    st.session_state.selected_ticker = selected_ticker
 
     with st.spinner("繪製圖表中..."):
         chart_df = get_chart_data(selected_ticker, tf_interval, tf_period)
