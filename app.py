@@ -252,7 +252,6 @@ def style_dataframe(df):
             if '🔺' in val: return 'color: #ff4b4b; font-weight: bold;'
             elif '🔻' in val: return 'color: #00c853; font-weight: bold;'
         return ''
-    # ⭐️ 修正 KeyError 筆誤 (將 涨 修正為 漲)
     if hasattr(df.style, "map"): return df.style.map(color_trend, subset=['收盤價(漲跌)'])
     else: return df.style.applymap(color_trend, subset=['收盤價(漲跌)'])
 
@@ -418,15 +417,16 @@ if options:
                     activecolor="#cccccc",
                     font=dict(color="#007AFF"),
                     yanchor="bottom",
-                    y=1.02, 
+                    y=1.18, # ⭐️ 將 1M~5Y 的按鈕位置大幅度向上拉高，避開右邊的浮動工具列
                     xanchor="left",
                     x=0.0
                 )
             )
 
+            # ⭐️ 核心修正：將頂部留白 (margin t) 加大到 90，確保往上拉高的按鈕不會被網頁切到
             fig.update_layout(
                 height=750, 
-                margin=dict(l=10, r=10, t=50, b=120), 
+                margin=dict(l=10, r=10, t=90, b=120), 
                 xaxis_rangeslider_visible=False,
                 legend=dict(
                     orientation="h", 
@@ -438,7 +438,7 @@ if options:
                 hovermode="x unified"
             )
             
-            st.plotly_chart(fig, use_container_width=True, config={'displaylogo': False})
+            st.plotly_chart(fig, use_container_width=True)
 else:
     st.warning("⚠️ 自選股清單目前為空，請從左上角側邊欄加入股票。")
 
