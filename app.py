@@ -391,7 +391,7 @@ if options:
             fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['DIF'], line=dict(color='black', width=1), name='DIF'), row=3, col=1)
             fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['DEA'], line=dict(color='purple', width=1), name='DEA(MACD)'), row=3, col=1)
 
-            # ⭐️ 隱藏非交易日的空白斷層，並設定動態預設縮放區間
+            # 隱藏非交易日的空白斷層，並設定動態預設縮放區間
             chart_dates = chart_df.index.strftime('%Y-%m-%d').tolist()
             dt_all = pd.date_range(start=chart_df.index[0], end=chart_df.index[-1])
             dt_breaks = [d.strftime('%Y-%m-%d') for d in dt_all if d.strftime('%Y-%m-%d') not in chart_dates]
@@ -430,3 +430,14 @@ if options:
             st.plotly_chart(fig, use_container_width=True)
 else:
     st.warning("⚠️ 自選股清單目前為空，請從左上角側邊欄加入股票。")
+
+# --- 版權宣告與免責聲明 ---
+st.divider()
+st.markdown(
+    """
+    <div style='text-align: center; color: #888888; font-size: 14px; padding: 10px;'>
+        本系統由 Robert 開發，僅供技術分析研究，非投資買賣建議
+    </div>
+    """, 
+    unsafe_allow_html=True
+)
