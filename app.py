@@ -52,6 +52,46 @@ else:
     ma_short_label = "5D"
     ma_long_label = "10D"
 
+# --- ⭐️ 新增：大盤(0050) 多空環境燈號分析 ---
+@st.cache_data(ttl=3600)
+def get_market_trend(interval, period):
+    try:
+        df = yf.download("0050.TW", period=period, interval=interval, progress=False)
+        if df.empty: return None
+        
+        close = df['Close']["0050.TW"] if isinstance(df.columns, pd.MultiIndex) else df['Close']
+        close = close.dropna()
+        
+        ema12, ema26 = close.ewm(span=12, adjust=False).mean(), close.ewm(span=26, adjust=False).mean()
+        dif = ema12 - ema26
+        dea = dif.ewm(span=9, adjust=False).mean()
+        hist = dif - dea 
+        
+        curr_hist, prev_hist = hist.iloc[-1], hist.iloc[-2]
+        curr_dif = dif.iloc[-1]
+        
+        # 判定大盤燈號邏輯
+        if curr_hist > 0 and curr_hist > prev_hist:
+            status = "🟢 多頭擴張"
+            advice = "大盤趨勢向上，操作部位可適度放大至 80%~100%。"
+            color = "#e8f5e9" # 淺綠底
+        elif curr_hist > 0 and curr_hist <= prev_hist:
+            status = "🟡 高檔震盪 (柱狀收斂)"
+            advice = "大盤動能減弱，維持現有持股，新部位需嚴格挑選帶量突破標的。"
+            color = "#fff8e1" # 淺黃底
+        elif curr_hist < 0 and curr_hist > prev_hist:
+            status = "🟡 跌深反彈 (水下金叉)"
+            advice = "大盤有落底跡象，可以 30%~50% 資金小量試單，嚴設前低停損。"
+            color = "#fff8e1" # 淺黃底
+        else:
+            status = "🔴 空頭發散"
+            advice = "大盤趨勢向下，建議縮小操作部位至 30% 以下，多看少做保本為主。"
+            color = "#ffebee" # 淺紅底
+            
+        return {"status": status, "advice": advice, "color": color, "price": close.iloc[-1]}
+    except Exception:
+        return None
+
 # 1. 運算所有自選股最新訊號
 @st.cache_data(ttl=3600)
 def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
@@ -87,14 +127,10 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
             curr_vol_ma5 = vol_ma5.iloc[-1]
             vol_condition = curr_vol > curr_vol_ma5  
             
-            # ⭐️ 計算漲跌幅與動態文字格式
             change_pct = ((curr_close - prev_close) / prev_close) * 100
-            if change_pct > 0:
-                price_display = f"🔺 {curr_close:.2f} (+{change_pct:.2f}%)"
-            elif change_pct < 0:
-                price_display = f"🔻 {curr_close:.2f} ({change_pct:.2f}%)"
-            else:
-                price_display = f"➖ {curr_close:.2f} (0.00%)"
+            if change_pct > 0: price_display = f"🔺 {curr_close:.2f} (+{change_pct:.2f}%)"
+            elif change_pct < 0: price_display = f"🔻 {curr_close:.2f} ({change_pct:.2f}%)"
+            else: price_display = f"➖ {curr_close:.2f} (0.00%)"
             
             actions = []
             
@@ -145,15 +181,12 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
         
     return df_results
 
-# ⭐️ 建立 Dataframe 顏色渲染函數
 def style_dataframe(df):
     def color_trend(val):
         if isinstance(val, str):
-            if '🔺' in val: return 'color: #ff4b4b; font-weight: bold;' # 紅色(上漲)
-            elif '🔻' in val: return 'color: #00c853; font-weight: bold;' # 綠色(下跌)
+            if '🔺' in val: return 'color: #ff4b4b; font-weight: bold;'
+            elif '🔻' in val: return 'color: #00c853; font-weight: bold;'
         return ''
-    
-    # 兼容不同版本的 pandas API
     if hasattr(df.style, "map"): return df.style.map(color_trend, subset=['收盤價(漲跌)'])
     else: return df.style.applymap(color_trend, subset=['收盤價(漲跌)'])
 
@@ -186,12 +219,30 @@ with col1:
         st.cache_data.clear()
 
 with st.spinner("運算技術指標與量能中..."):
+    # ⭐️ 渲染大盤燈號儀表板
+    market_trend = get_market_trend(tf_interval, tf_period)
+    if market_trend:
+        st.markdown(
+            f"""
+            <div style="background-color: {market_trend['color']}; padding: 15px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #ccc;">
+                <h4 style="margin: 0; color: #333;">🧭 總體資金水位儀表板 (0050 {timeframe_option})</h4>
+                <p style="margin: 5px 0 0 0; font-size: 18px; font-weight: bold; color: #333;">
+                    狀態：{market_trend['status']}
+                </p>
+                <p style="margin: 5px 0 0 0; color: #555;">
+                    💡 建議：{market_trend['advice']}
+                </p>
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
+
+    # 渲染個股表格
     df_signals = analyze_signals(tf_interval, tf_period, ma_short_label, ma_long_label, WATCHLIST)
     if not df_signals.empty:
         st.subheader("📌 重點動態追蹤 (量能與位階濾網)")
         action_df = df_signals[df_signals['最新動態'] != "-"]
         
-        # 套用顏色渲染並顯示
         if action_df.empty: st.info("目前無交叉訊號，維持原持股。")
         else: st.dataframe(style_dataframe(action_df), use_container_width=True)
             
