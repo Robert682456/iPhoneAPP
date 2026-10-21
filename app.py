@@ -52,7 +52,7 @@ else:
     ma_short_label = "5D"
     ma_long_label = "10D"
 
-# 1. 運算所有自選股最新訊號 (加入量能與零軸濾網)
+# 1. 運算所有自選股最新訊號
 @st.cache_data(ttl=3600)
 def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
     results = []
@@ -66,7 +66,9 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
             close = close.dropna()
             volume = volume.dropna()
             
+            # 計算各項均線與均量
             ma5, ma10 = close.rolling(5).mean(), close.rolling(10).mean()
+            ma20 = close.rolling(20).mean() # 加入 20MA (月線) 運算
             vol_ma5 = volume.rolling(5).mean()
             
             ema12, ema26 = close.ewm(span=12, adjust=False).mean(), close.ewm(span=26, adjust=False).mean()
@@ -74,8 +76,12 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
             dea = dif.ewm(span=9, adjust=False).mean()
             hist = dif - dea 
             
+            # 取得近兩期資料
+            curr_close, prev_close = close.iloc[-1], close.iloc[-2]
             curr_ma5, prev_ma5 = ma5.iloc[-1], ma5.iloc[-2]
             curr_ma10, prev_ma10 = ma10.iloc[-1], ma10.iloc[-2]
+            curr_ma20, prev_ma20 = ma20.iloc[-1], ma20.iloc[-2]
+            
             curr_hist, prev_hist = hist.iloc[-1], hist.iloc[-2]
             curr_dif = dif.iloc[-1]
             
@@ -85,6 +91,14 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
             
             actions = []
             
+            # ⭐️ 新增：日線專屬濾網 (突破 20MA 且帶量)
+            if interval == "1d":
+                if prev_close <= prev_ma20 and curr_close > curr_ma20:
+                    if vol_condition:
+                        actions.append("🟢 日線帶量突破(提前佈局)")
+                    else:
+                        actions.append("⚠️ 日線無量突破(提防假突破)")
+
             # MACD 買賣點與濾網判定
             if prev_hist <= 0 and curr_hist > 0:
                 if vol_condition:
@@ -93,12 +107,12 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
                     else:
                         actions.append("🟢 水下帶量金叉(嚴設停損)")
                 else:
-                    actions.append("⚠️ 無量金叉(觀望假突破)")
+                    actions.append("⚠️ 無量金叉(觀望)")
             elif prev_hist >= 0 and curr_hist < 0:
                 actions.append("🔴 MACD死叉(賣出)")
             elif interval == "1wk" and prev_hist < 0 and curr_hist < 0 and curr_hist > prev_hist:
-                # 週線 MACD 柱狀體縮減預警 (引導至日線打點)
-                actions.append("💡 柱狀收斂(可切日線看20MA)")
+                # 週線 MACD 柱狀體縮減預警
+                actions.append("💡 柱狀收斂(切日線看20MA)")
 
             # MA 買賣點與濾網判定
             if prev_ma5 <= prev_ma10 and curr_ma5 > curr_ma10:
@@ -109,7 +123,7 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
             elif prev_ma5 >= prev_ma10 and curr_ma5 < curr_ma10:
                 actions.append("🔴 MA死叉(賣出)")
                 
-            # 計算建議狀態 (若無量金叉，將持股建議降級以防禦)
+            # 計算建議狀態
             target_position = (50 if curr_hist > 0 else 0) + (50 if curr_ma5 > curr_ma10 else 0)
             if target_position == 100:
                 rec_text = "🟢 買入" if vol_condition else "🟡 觀察(無量)"
@@ -119,7 +133,7 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
                 rec_text = "🔴 賣出"
             
             results.append({
-                "代碼": ticker, "名稱": name, "收盤價": round(float(close.iloc[-1]), 2),
+                "代碼": ticker, "名稱": name, "收盤價": round(float(curr_close), 2),
                 "MACD": "多頭" if curr_hist > 0 else "空頭", 
                 "MA": f"{ma_s_label}>{ma_l_label}" if curr_ma5 > curr_ma10 else f"{ma_s_label}<{ma_l_label}",
                 "建議": rec_text,
@@ -140,7 +154,7 @@ def get_chart_data(ticker, interval, period):
     df = df.dropna()
     df['MA5'] = df['Close'].rolling(window=5).mean()
     df['MA10'] = df['Close'].rolling(window=10).mean()
-    df['MA20'] = df['Close'].rolling(window=20).mean() # 加入 20MA (月線) 供日線提前打點
+    df['MA20'] = df['Close'].rolling(window=20).mean() # 20MA
     
     df['Vol_MA5'] = df['Volume'].rolling(window=5).mean()
     
@@ -149,7 +163,6 @@ def get_chart_data(ticker, interval, period):
     df['MACD_Hist'] = df['DIF'] - df['DEA']
     df['MACD_Color'] = ['#ef5350' if val > 0 else '#26a69a' for val in df['MACD_Hist']]
     
-    # 判斷 K 線漲跌以標示成交量顏色
     df['Candle_Dir'] = df['Close'] >= df['Open']
     df['Vol_Color'] = ['#ef5350' if d else '#26a69a' for d in df['Candle_Dir']]
     
@@ -172,7 +185,7 @@ with st.spinner("運算技術指標與量能中..."):
         st.subheader(f"📊 全部自選股狀態 ({timeframe_option})")
         st.dataframe(df_signals, use_container_width=True)
 
-# --- 互動 K 線圖區塊 (包含三層子圖) ---
+# --- 互動 K 線圖區塊 ---
 st.divider()
 st.subheader("📉 價量與指標複合分析圖")
 
@@ -185,11 +198,9 @@ if options:
         chart_df = get_chart_data(selected_ticker, tf_interval, tf_period)
         
         if chart_df is not None:
-            # 升級為 3 個子圖：主圖(K線+MA)、副圖1(成交量)、副圖2(MACD)
             fig = make_subplots(rows=3, cols=1, shared_xaxes=True, 
                                 vertical_spacing=0.03, row_heights=[0.5, 0.2, 0.3])
 
-            # Row 1: K線與均線 (加入 20MA)
             fig.add_trace(go.Candlestick(x=chart_df.index, open=chart_df['Open'], high=chart_df['High'],
                                          low=chart_df['Low'], close=chart_df['Close'], 
                                          name='K線', increasing_line_color='#ef5350', decreasing_line_color='#26a69a'), 
@@ -198,17 +209,15 @@ if options:
             fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['MA10'], line=dict(color='blue', width=1.5), name=f'{ma_long_label} MA'), row=1, col=1)
             fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['MA20'], line=dict(color='gray', dash='dot', width=1.5), name='20MA (月線)'), row=1, col=1)
 
-            # Row 2: 成交量與 5均量
             fig.add_trace(go.Bar(x=chart_df.index, y=chart_df['Volume'], marker_color=chart_df['Vol_Color'], name='成交量'), row=2, col=1)
             fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['Vol_MA5'], line=dict(color='orange', width=1), name='5均量'), row=2, col=1)
 
-            # Row 3: MACD
             fig.add_trace(go.Bar(x=chart_df.index, y=chart_df['MACD_Hist'], marker_color=chart_df['MACD_Color'], name='MACD柱'), row=3, col=1)
             fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['DIF'], line=dict(color='black', width=1), name='DIF'), row=3, col=1)
             fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['DEA'], line=dict(color='purple', width=1), name='DEA(MACD)'), row=3, col=1)
 
             fig.update_layout(
-                height=650, # 稍微拉高總高度容納三個圖
+                height=650,
                 margin=dict(l=10, r=10, t=10, b=10),
                 xaxis_rangeslider_visible=False,
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
