@@ -374,7 +374,7 @@ if options:
     st.session_state.selected_ticker = selected_ticker
 
     with st.spinner("繪製圖表中..."):
-        # ⭐️ 將圖表的抓取期間固定為 5 年，以支援時間選擇器
+        # 抓取期間固定為 5 年，以支援時間選擇器
         chart_df = get_chart_data(selected_ticker, tf_interval, "5y")
         if chart_df is not None:
             fig = make_subplots(rows=3, cols=1, shared_xaxes=True, 
@@ -394,20 +394,24 @@ if options:
             fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['DIF'], line=dict(color='black', width=1), name='DIF'), row=3, col=1)
             fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['DEA'], line=dict(color='purple', width=1), name='DEA(MACD)'), row=3, col=1)
 
-            fig.update_layout(height=650, margin=dict(l=10, r=10, t=10, b=10), xaxis_rangeslider_visible=False,
-                              legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), hovermode="x unified")
-            
-            # ⭐️ 隱藏非交易日的空白斷層，並加入 1W~5Y 快速縮放按鈕
+            # ⭐️ 隱藏非交易日的空白斷層，並設定動態預設縮放區間
             chart_dates = chart_df.index.strftime('%Y-%m-%d').tolist()
             dt_all = pd.date_range(start=chart_df.index[0], end=chart_df.index[-1])
             dt_breaks = [d.strftime('%Y-%m-%d') for d in dt_all if d.strftime('%Y-%m-%d') not in chart_dates]
             
+            end_date = chart_df.index[-1]
+            if tf_interval == "1wk":
+                start_date = end_date - pd.DateOffset(years=1)
+            else:
+                start_date = end_date - pd.DateOffset(months=3)
+
             fig.update_xaxes(
+                range=[start_date, end_date],
                 rangebreaks=[dict(values=dt_breaks)],
                 rangeselector=dict(
                     buttons=list([
-                        dict(count=7, label="1W", step="day", stepmode="backward"),
                         dict(count=1, label="1M", step="month", stepmode="backward"),
+                        dict(count=3, label="3M", step="month", stepmode="backward"),
                         dict(count=6, label="6M", step="month", stepmode="backward"),
                         dict(count=1, label="1Y", step="year", stepmode="backward"),
                         dict(count=3, label="3Y", step="year", stepmode="backward"),
@@ -417,12 +421,15 @@ if options:
                     bgcolor="#f0f0f0",
                     activecolor="#cccccc",
                     yanchor="bottom",
-                    y=1.02, # 將按鈕固定在 K 線圖上方[cite: 10]
+                    y=1.02,
                     xanchor="left",
                     x=0.01
                 )
             )
 
+            fig.update_layout(height=650, margin=dict(l=10, r=10, t=10, b=10), xaxis_rangeslider_visible=False,
+                              legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), hovermode="x unified")
+            
             st.plotly_chart(fig, use_container_width=True)
 else:
     st.warning("⚠️ 自選股清單目前為空，請從左上角側邊欄加入股票。")
