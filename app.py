@@ -74,8 +74,8 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label):
             actions = []
             if prev_hist <= 0 and curr_hist > 0: actions.append("🟢 MACD金叉")
             elif prev_hist >= 0 and curr_hist < 0: actions.append("🔴 MACD死叉")
-            if prev_ma5 <= prev_ma10 and curr_ma5 > curr_ma10: actions.append(f"🟢 MA金叉")
-            elif prev_ma5 >= prev_ma10 and curr_ma5 < curr_ma10: actions.append(f"🔴 MA死叉")
+            if prev_ma5 <= prev_ma10 and curr_ma5 > curr_ma10: actions.append("🟢 MA金叉")
+            elif prev_ma5 >= prev_ma10 and curr_ma5 < curr_ma10: actions.append("🔴 MA死叉")
                 
             # 計算建議狀態
             target_position = (50 if curr_hist > 0 else 0) + (50 if curr_ma5 > curr_ma10 else 0)
@@ -133,7 +133,7 @@ with st.spinner("運算技術指標中..."):
 
 # --- 互動 K 線圖區塊 ---
 st.divider()
-st.subheader(f"📉 個股技術線圖分析")
+st.subheader("📉 個股技術線圖分析")
 
 options = [f"{k} - {v}" for k, v in WATCHLIST.items()]
 selected_option = st.selectbox("請選擇要查看的標的：", options)
@@ -156,4 +156,14 @@ with st.spinner("繪製圖表中..."):
 
         fig.add_trace(go.Bar(x=chart_df.index, y=chart_df['MACD_Hist'], marker_color=chart_df['Color'], name='MACD柱'), row=2, col=1)
         fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['DIF'], line=dict(color='black', width=1), name='DIF'), row=2, col=1)
-        fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['DEA'], line=dict(color='purple', width=1), name='DEA
+        fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['DEA'], line=dict(color='purple', width=1), name='DEA(MACD)'), row=2, col=1)
+
+        fig.update_layout(
+            height=500,
+            margin=dict(l=10, r=10, t=10, b=10),
+            xaxis_rangeslider_visible=False,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            hovermode="x unified"
+        )
+        
+        st.plotly_chart(fig, use_container_width=True)
