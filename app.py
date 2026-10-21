@@ -415,6 +415,7 @@ if options:
                     ]),
                     bgcolor="#f0f0f0",
                     activecolor="#cccccc",
+                    font=dict(color="#007AFF"), # ⭐️ 設定字體為藍色，解決手機深淺色模式無法辨識的問題
                     yanchor="bottom",
                     y=1.12,
                     xanchor="left",
@@ -422,7 +423,6 @@ if options:
                 )
             )
 
-            # ⭐️ 將圖表頂部邊距 t 調高為 50，避免重疊與裁切
             fig.update_layout(height=680, margin=dict(l=10, r=10, t=50, b=10), xaxis_rangeslider_visible=False,
                               legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), hovermode="x unified")
             
