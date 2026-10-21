@@ -196,6 +196,59 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
         
     return df_results
 
+# 策略歷史回測引擎
+@st.cache_data(ttl=3600)
+def calculate_win_rate(ticker, name, interval):
+    try:
+        df = yf.download(ticker, period="1y", interval=interval, progress=False)
+        if df.empty or len(df) < 35: return None
+        
+        close = df['Close'][ticker] if isinstance(df.columns, pd.MultiIndex) else df['Close']
+        volume = df['Volume'][ticker] if isinstance(df.columns, pd.MultiIndex) else df['Volume']
+        close = close.dropna()
+        volume = volume.dropna()
+        
+        ma5, ma10 = close.rolling(5).mean(), close.rolling(10).mean()
+        vol_ma5 = volume.rolling(5).mean()
+        
+        ema12, ema26 = close.ewm(span=12, adjust=False).mean(), close.ewm(span=26, adjust=False).mean()
+        dif = ema12 - ema26
+        dea = dif.ewm(span=9, adjust=False).mean()
+        hist = dif - dea 
+        
+        trades, wins = 0, 0
+        holding = False
+        buy_price = 0
+        
+        for i in range(20, len(close)):
+            curr_close = close.iloc[i]
+            curr_ma5, curr_ma10 = ma5.iloc[i], ma10.iloc[i]
+            curr_hist = hist.iloc[i]
+            curr_vol, curr_vol_ma5 = volume.iloc[i], vol_ma5.iloc[i]
+            
+            vol_condition = curr_vol > curr_vol_ma5
+            target_position = (50 if curr_hist > 0 else 0) + (50 if curr_ma5 > curr_ma10 else 0)
+            
+            if not holding and target_position == 100 and vol_condition:
+                holding = True
+                buy_price = curr_close
+            elif holding and target_position == 0:
+                holding = False
+                trades += 1
+                if curr_close > buy_price:
+                    wins += 1
+                    
+        win_rate = (wins / trades * 100) if trades > 0 else 0
+        return {
+            "代碼": ticker, 
+            "名稱": name,
+            "總交易次數": trades, 
+            "獲利次數": wins, 
+            "歷史勝率": f"{win_rate:.1f}%" if trades > 0 else "無交易紀錄"
+        }
+    except Exception:
+        return None
+
 def style_dataframe(df):
     def color_trend(val):
         if isinstance(val, str):
@@ -272,6 +325,24 @@ with st.spinner("運算技術指標與量能中..."):
             if action_event.selection.rows:
                 selected_row_idx = action_event.selection.rows[0]
                 st.session_state.selected_ticker = action_df.iloc[selected_row_idx]['代碼']
+        
+        buy_df = display_df[display_df['建議'].str.contains("買入", na=False)]
+        with st.expander("📊 計算『買入』標的歷史勝率 (近一年回測)"):
+            if st.button("🚀 執行歷史回測"):
+                if buy_df.empty:
+                    st.warning("目前沒有處於『🟢 買入』狀態的標的，無法進行回測。")
+                else:
+                    with st.spinner("正在進行歷史交易模擬回測..."):
+                        backtest_results = []
+                        for _, row in buy_df.iterrows():
+                            res = calculate_win_rate(row['代碼'], row['名稱'], tf_interval)
+                            if res: backtest_results.append(res)
+                        
+                        if backtest_results:
+                            st.dataframe(pd.DataFrame(backtest_results), use_container_width=True)
+                            st.caption("※ 回測邏輯：過去一年內，當均線與MACD雙多頭且帶量時買進；雙空頭時賣出。")
+                        else:
+                            st.error("無法取得回測資料。")
             
         st.subheader(f"📊 全部自選股狀態 ({timeframe_option})")
         display_event = st.dataframe(
@@ -303,7 +374,8 @@ if options:
     st.session_state.selected_ticker = selected_ticker
 
     with st.spinner("繪製圖表中..."):
-        chart_df = get_chart_data(selected_ticker, tf_interval, tf_period)
+        # ⭐️ 將圖表的抓取期間固定為 5 年，以支援時間選擇器
+        chart_df = get_chart_data(selected_ticker, tf_interval, "5y")
         if chart_df is not None:
             fig = make_subplots(rows=3, cols=1, shared_xaxes=True, 
                                 vertical_spacing=0.03, row_heights=[0.5, 0.2, 0.3])
@@ -325,11 +397,31 @@ if options:
             fig.update_layout(height=650, margin=dict(l=10, r=10, t=10, b=10), xaxis_rangeslider_visible=False,
                               legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), hovermode="x unified")
             
-            # ⭐️ 新增：自動抓出所有「非交易日（包含週末與假日）」並將其從 X 軸隱藏
+            # ⭐️ 隱藏非交易日的空白斷層，並加入 1W~5Y 快速縮放按鈕
             chart_dates = chart_df.index.strftime('%Y-%m-%d').tolist()
             dt_all = pd.date_range(start=chart_df.index[0], end=chart_df.index[-1])
             dt_breaks = [d.strftime('%Y-%m-%d') for d in dt_all if d.strftime('%Y-%m-%d') not in chart_dates]
-            fig.update_xaxes(rangebreaks=[dict(values=dt_breaks)])
+            
+            fig.update_xaxes(
+                rangebreaks=[dict(values=dt_breaks)],
+                rangeselector=dict(
+                    buttons=list([
+                        dict(count=7, label="1W", step="day", stepmode="backward"),
+                        dict(count=1, label="1M", step="month", stepmode="backward"),
+                        dict(count=6, label="6M", step="month", stepmode="backward"),
+                        dict(count=1, label="1Y", step="year", stepmode="backward"),
+                        dict(count=3, label="3Y", step="year", stepmode="backward"),
+                        dict(count=5, label="5Y", step="year", stepmode="backward"),
+                        dict(label="全部", step="all")
+                    ]),
+                    bgcolor="#f0f0f0",
+                    activecolor="#cccccc",
+                    yanchor="bottom",
+                    y=1.02, # 將按鈕固定在 K 線圖上方[cite: 10]
+                    xanchor="left",
+                    x=0.01
+                )
+            )
 
             st.plotly_chart(fig, use_container_width=True)
 else:
