@@ -379,16 +379,20 @@ if options:
             fig.add_trace(go.Candlestick(x=chart_df.index, open=chart_df['Open'], high=chart_df['High'],
                                          low=chart_df['Low'], close=chart_df['Close'], 
                                          name='K線', increasing_line_color='#ef5350', decreasing_line_color='#26a69a'), row=1, col=1)
+            
+            # 均線顏色
             fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['MA5'], line=dict(color='orange', width=1.5), name=f'{ma_short_label} MA'), row=1, col=1)
             fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['MA10'], line=dict(color='blue', width=1.5), name=f'{ma_long_label} MA'), row=1, col=1)
             fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['MA20'], line=dict(color='gray', dash='dot', width=1.5), name='20MA (月線)'), row=1, col=1)
 
+            # 成交量
             fig.add_trace(go.Bar(x=chart_df.index, y=chart_df['Volume'], marker_color=chart_df['Vol_Color'], name='成交量'), row=2, col=1)
             fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['Vol_MA5'], line=dict(color='orange', width=1), name='5均量'), row=2, col=1)
 
+            # MACD柱與快慢線 (⭐️ 修改為橘色與藍色，與上方均線呼應)
             fig.add_trace(go.Bar(x=chart_df.index, y=chart_df['MACD_Hist'], marker_color=chart_df['MACD_Color'], name='MACD柱'), row=3, col=1)
-            fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['DIF'], line=dict(color='black', width=1), name='DIF'), row=3, col=1)
-            fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['DEA'], line=dict(color='purple', width=1), name='DEA(MACD)'), row=3, col=1)
+            fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['DIF'], line=dict(color='orange', width=1.5), name='DIF'), row=3, col=1)
+            fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['DEA'], line=dict(color='blue', width=1.5), name='DEA(MACD)'), row=3, col=1)
 
             chart_dates = chart_df.index.strftime('%Y-%m-%d').tolist()
             dt_all = pd.date_range(start=chart_df.index[0], end=chart_df.index[-1])
@@ -416,14 +420,13 @@ if options:
                     bgcolor="#f0f0f0",
                     activecolor="#cccccc",
                     font=dict(color="#007AFF"),
-                    yanchor="top",  # ⭐️ 將對齊點改為 top
-                    y=1.0,          # ⭐️ 讓按鈕往下移動，完全進入圖表內部上方，徹底避開外部工具列干擾
+                    yanchor="top",  
+                    y=1.0,          
                     xanchor="left",
                     x=0.01
                 )
             )
 
-            # ⭐️ 恢復正常的上方留白空間
             fig.update_layout(
                 height=750, 
                 margin=dict(l=10, r=10, t=40, b=120), 
@@ -438,7 +441,6 @@ if options:
                 hovermode="x unified"
             )
             
-            # 使用 config={'displayModeBar': False} 完全關閉右上角的相機/縮放浮動工具列
             st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 else:
     st.warning("⚠️ 自選股清單目前為空，請從左上角側邊欄加入股票。")
