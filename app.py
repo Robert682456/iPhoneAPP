@@ -371,7 +371,6 @@ if options:
     st.session_state.selected_ticker = selected_ticker
 
     with st.spinner("繪製圖表中..."):
-        # 抓取期間固定為 5 年，以支援時間選擇器
         chart_df = get_chart_data(selected_ticker, tf_interval, "5y")
         if chart_df is not None:
             fig = make_subplots(rows=3, cols=1, shared_xaxes=True, 
@@ -391,7 +390,6 @@ if options:
             fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['DIF'], line=dict(color='black', width=1), name='DIF'), row=3, col=1)
             fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['DEA'], line=dict(color='purple', width=1), name='DEA(MACD)'), row=3, col=1)
 
-            # 隱藏非交易日的空白斷層，並設定動態預設縮放區間
             chart_dates = chart_df.index.strftime('%Y-%m-%d').tolist()
             dt_all = pd.date_range(start=chart_df.index[0], end=chart_df.index[-1])
             dt_breaks = [d.strftime('%Y-%m-%d') for d in dt_all if d.strftime('%Y-%m-%d') not in chart_dates]
@@ -418,13 +416,14 @@ if options:
                     bgcolor="#f0f0f0",
                     activecolor="#cccccc",
                     yanchor="bottom",
-                    y=1.02,
+                    y=1.12,
                     xanchor="left",
                     x=0.01
                 )
             )
 
-            fig.update_layout(height=650, margin=dict(l=10, r=10, t=10, b=10), xaxis_rangeslider_visible=False,
+            # ⭐️ 將圖表頂部邊距 t 調高為 50，避免重疊與裁切
+            fig.update_layout(height=680, margin=dict(l=10, r=10, t=50, b=10), xaxis_rangeslider_visible=False,
                               legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), hovermode="x unified")
             
             st.plotly_chart(fig, use_container_width=True)
