@@ -10,23 +10,38 @@ st.set_page_config(page_title="雙指標波段系統", page_icon="📈", layout=
 st.sidebar.header("⚙️ 自選股管理")
 st.sidebar.markdown("請依照 `代碼,名稱` 的格式輸入，每行一檔標的。若要刪除，直接將該行清空即可。")
 
+# 包含您所有最新提供的大名單
 DEFAULT_LIST = """0050.TW,元大台灣50
 00752.TW,中信中國50
 00880B.TW,野村澳州公債
 00725B.TW,國泰投資級公司債
 2812.TW,台中銀
-5386.TW,青雲
+5386.TWO,青雲
 1101.TW,台泥
 2330.TW,台積電
 3008.TW,大立光
-3362.TW,先進光
+3362.TWO,先進光
 1415.HK,高偉電子
 02342.HK,京信通信
 VOO,VOO標普500
 QQQM,QQQM納指100
-SGOV,SGOV美債"""
+SGOV,SGOV美債
+2408.TW,南亞科
+2371.TW,大同
+6505.TW,台塑化
+6147.TWO,頎邦
+1504.TW,東元
+2006.TW,東和鋼鐵
+2633.TW,台灣高鐵
+9921.TW,巨大
+2610.TW,華航
+1402.TW,遠東新
+3376.TW,新日興
+2912.TW,統一超
+1216.TW,統一
+3406.TW,玉晶光"""
 
-user_input = st.sidebar.text_area("📝 編輯清單：", DEFAULT_LIST, height=400)
+user_input = st.sidebar.text_area("📝 編輯清單：", DEFAULT_LIST, height=600)
 WATCHLIST = {}
 for line in user_input.strip().split('\n'):
     if ',' in line:
@@ -52,7 +67,7 @@ else:
     ma_short_label = "5D"
     ma_long_label = "10D"
 
-# --- ⭐️ 新增：大盤(0050) 多空環境燈號分析 ---
+# --- 大盤(0050) 多空環境燈號分析 ---
 @st.cache_data(ttl=3600)
 def get_market_trend(interval, period):
     try:
@@ -68,27 +83,17 @@ def get_market_trend(interval, period):
         hist = dif - dea 
         
         curr_hist, prev_hist = hist.iloc[-1], hist.iloc[-2]
-        curr_dif = dif.iloc[-1]
         
-        # 判定大盤燈號邏輯
         if curr_hist > 0 and curr_hist > prev_hist:
-            status = "🟢 多頭擴張"
-            advice = "大盤趨勢向上，操作部位可適度放大至 80%~100%。"
-            color = "#e8f5e9" # 淺綠底
+            status, advice, color = "🟢 多頭擴張", "大盤趨勢向上，操作部位可適度放大至 80%~100%。", "#e8f5e9"
         elif curr_hist > 0 and curr_hist <= prev_hist:
-            status = "🟡 高檔震盪 (柱狀收斂)"
-            advice = "大盤動能減弱，維持現有持股，新部位需嚴格挑選帶量突破標的。"
-            color = "#fff8e1" # 淺黃底
+            status, advice, color = "🟡 高檔震盪 (柱狀收斂)", "大盤動能減弱，維持現有持股，新部位需嚴格挑選帶量突破標的。", "#fff8e1"
         elif curr_hist < 0 and curr_hist > prev_hist:
-            status = "🟡 跌深反彈 (水下金叉)"
-            advice = "大盤有落底跡象，可以 30%~50% 資金小量試單，嚴設前低停損。"
-            color = "#fff8e1" # 淺黃底
+            status, advice, color = "🟡 跌深反彈 (水下金叉)", "大盤有落底跡象，可以 30%~50% 資金小量試單，嚴設前低停損。", "#fff8e1"
         else:
-            status = "🔴 空頭發散"
-            advice = "大盤趨勢向下，建議縮小操作部位至 30% 以下，多看少做保本為主。"
-            color = "#ffebee" # 淺紅底
+            status, advice, color = "🔴 空頭發散", "大盤趨勢向下，建議縮小操作部位至 30% 以下，多看少做保本為主。", "#ffebee"
             
-        return {"status": status, "advice": advice, "color": color, "price": close.iloc[-1]}
+        return {"status": status, "advice": advice, "color": color}
     except Exception:
         return None
 
@@ -106,8 +111,7 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
             close = close.dropna()
             volume = volume.dropna()
             
-            ma5, ma10 = close.rolling(5).mean(), close.rolling(10).mean()
-            ma20 = close.rolling(20).mean()
+            ma5, ma10, ma20 = close.rolling(5).mean(), close.rolling(10).mean(), close.rolling(20).mean()
             vol_ma5 = volume.rolling(5).mean()
             
             ema12, ema26 = close.ewm(span=12, adjust=False).mean(), close.ewm(span=26, adjust=False).mean()
@@ -119,12 +123,10 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
             curr_ma5, prev_ma5 = ma5.iloc[-1], ma5.iloc[-2]
             curr_ma10, prev_ma10 = ma10.iloc[-1], ma10.iloc[-2]
             curr_ma20, prev_ma20 = ma20.iloc[-1], ma20.iloc[-2]
-            
             curr_hist, prev_hist = hist.iloc[-1], hist.iloc[-2]
             curr_dif = dif.iloc[-1]
             
-            curr_vol = volume.iloc[-1]
-            curr_vol_ma5 = vol_ma5.iloc[-1]
+            curr_vol, curr_vol_ma5 = volume.iloc[-1], vol_ma5.iloc[-1]
             vol_condition = curr_vol > curr_vol_ma5  
             
             change_pct = ((curr_close - prev_close) / prev_close) * 100
@@ -136,13 +138,10 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
             
             if interval == "1d":
                 if prev_close <= prev_ma20 and curr_close > curr_ma20:
-                    if vol_condition: actions.append("🟢 日線帶量突破(提前佈局)")
-                    else: actions.append("⚠️ 日線無量突破(提防假突破)")
+                    actions.append("🟢 日線帶量突破(提前佈局)" if vol_condition else "⚠️ 日線無量突破(提防假突破)")
 
             if prev_hist <= 0 and curr_hist > 0:
-                if vol_condition:
-                    if curr_dif > 0: actions.append("🟢 零上帶量金叉(強勢主升)")
-                    else: actions.append("🟢 水下帶量金叉(嚴設停損)")
+                if vol_condition: actions.append("🟢 零上帶量金叉(強勢主升)" if curr_dif > 0 else "🟢 水下帶量金叉(嚴設停損)")
                 else: actions.append("⚠️ 無量金叉(觀望)")
             elif prev_hist >= 0 and curr_hist < 0:
                 actions.append("🔴 MACD死叉(賣出)")
@@ -150,8 +149,7 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
                 actions.append("💡 柱狀收斂(切日線看20MA)")
 
             if prev_ma5 <= prev_ma10 and curr_ma5 > curr_ma10:
-                if vol_condition: actions.append("🟢 MA帶量金叉")
-                else: actions.append("⚠️ MA無量金叉")
+                actions.append("🟢 MA帶量金叉" if vol_condition else "⚠️ MA無量金叉")
             elif prev_ma5 >= prev_ma10 and curr_ma5 < curr_ma10:
                 actions.append("🔴 MA死叉(賣出)")
                 
@@ -195,8 +193,8 @@ def style_dataframe(df):
 def get_chart_data(ticker, interval, period):
     df = yf.download(ticker, period=period, interval=interval, progress=False)
     if df.empty: return None
-    
     if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
+    
     df = df.dropna()
     df['MA5'] = df['Close'].rolling(window=5).mean()
     df['MA10'] = df['Close'].rolling(window=10).mean()
@@ -219,35 +217,44 @@ with col1:
         st.cache_data.clear()
 
 with st.spinner("運算技術指標與量能中..."):
-    # ⭐️ 渲染大盤燈號儀表板
+    # 渲染大盤燈號儀表板
     market_trend = get_market_trend(tf_interval, tf_period)
     if market_trend:
         st.markdown(
             f"""
             <div style="background-color: {market_trend['color']}; padding: 15px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #ccc;">
                 <h4 style="margin: 0; color: #333;">🧭 總體資金水位儀表板 (0050 {timeframe_option})</h4>
-                <p style="margin: 5px 0 0 0; font-size: 18px; font-weight: bold; color: #333;">
-                    狀態：{market_trend['status']}
-                </p>
-                <p style="margin: 5px 0 0 0; color: #555;">
-                    💡 建議：{market_trend['advice']}
-                </p>
+                <p style="margin: 5px 0 0 0; font-size: 18px; font-weight: bold; color: #333;">狀態：{market_trend['status']}</p>
+                <p style="margin: 5px 0 0 0; color: #555;">💡 建議：{market_trend['advice']}</p>
             </div>
-            """, 
-            unsafe_allow_html=True
+            """, unsafe_allow_html=True
         )
 
     # 渲染個股表格
     df_signals = analyze_signals(tf_interval, tf_period, ma_short_label, ma_long_label, WATCHLIST)
     if not df_signals.empty:
-        st.subheader("📌 重點動態追蹤 (量能與位階濾網)")
-        action_df = df_signals[df_signals['最新動態'] != "-"]
         
-        if action_df.empty: st.info("目前無交叉訊號，維持原持股。")
-        else: st.dataframe(style_dataframe(action_df), use_container_width=True)
+        # ⭐️ 加入搜尋功能
+        search_query = st.text_input("🔍 快速搜尋標的 (輸入代碼或名稱)：", "")
+        if search_query:
+            # 根據名稱或代碼過濾
+            display_df = df_signals[
+                df_signals['代碼'].str.contains(search_query, case=False, na=False) | 
+                df_signals['名稱'].str.contains(search_query, case=False, na=False)
+            ]
+        else:
+            display_df = df_signals
+
+        st.subheader("📌 重點動態追蹤 (量能與位階濾網)")
+        action_df = display_df[display_df['最新動態'] != "-"]
+        
+        if action_df.empty: 
+            st.info("目前無交叉訊號，或無符合搜尋條件的標的。")
+        else: 
+            st.dataframe(style_dataframe(action_df), use_container_width=True)
             
         st.subheader(f"📊 全部自選股狀態 ({timeframe_option})")
-        st.dataframe(style_dataframe(df_signals), use_container_width=True)
+        st.dataframe(style_dataframe(display_df), use_container_width=True)
 
 # --- 互動 K 線圖區塊 ---
 st.divider()
