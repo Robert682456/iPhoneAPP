@@ -10,12 +10,30 @@ st.set_page_config(page_title="雙指標波段系統", page_icon="📈", layout=
 if 'selected_ticker' not in st.session_state:
     st.session_state.selected_ticker = None
 
+# --- 隱藏 Streamlit 預設選單與浮水印 ---
+hide_st_style = """
+            <style>
+            #MainMenu {visibility: hidden;}
+            footer {visibility: hidden;}
+            header {visibility: hidden;}
+            .block-container {
+                padding-top: 1rem;
+                padding-bottom: 0rem;
+            }
+            </style>
+            """
+st.markdown(hide_st_style, unsafe_allow_html=True)
+
 # --- 側邊欄：自選股動態管理 ---
 st.sidebar.header("⚙️ 自選股管理")
 st.sidebar.markdown("請依照 `代碼,名稱` 的格式輸入，每行一檔標的。若要刪除，直接將該行清空即可。")
 
 DEFAULT_LIST = """0050.TW,元大台灣50
+00752.TW,中信中國50
+00880B.TW,野村澳州公債
+00725B.TW,國泰投資級公司債
 2812.TW,台中銀
+5386.TWO,青雲
 1101.TW,台泥
 2330.TW,台積電
 3008.TW,大立光
@@ -219,13 +237,13 @@ with st.spinner("運算技術指標與量能中..."):
     market_trend = get_market_trend(tf_interval, tf_period)
     if market_trend:
         st.markdown(
-            f"""
+            f'''
             <div style="background-color: {market_trend['color']}; padding: 15px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #ccc;">
                 <h4 style="margin: 0; color: #333;">🧭 總體資金水位儀表板 (0050 {timeframe_option})</h4>
                 <p style="margin: 5px 0 0 0; font-size: 18px; font-weight: bold; color: #333;">狀態：{market_trend['status']}</p>
                 <p style="margin: 5px 0 0 0; color: #555;">💡 建議：{market_trend['advice']}</p>
             </div>
-            """, unsafe_allow_html=True
+            ''', unsafe_allow_html=True
         )
 
     df_signals = analyze_signals(tf_interval, tf_period, ma_short_label, ma_long_label, WATCHLIST)
@@ -245,7 +263,6 @@ with st.spinner("運算技術指標與量能中..."):
         if action_df.empty: 
             st.info("目前無交叉訊號，或無符合搜尋條件的標的。")
         else: 
-            # ⭐️ 重點動態表格：加入點擊連動
             action_event = st.dataframe(
                 style_dataframe(action_df), 
                 use_container_width=True,
@@ -257,7 +274,6 @@ with st.spinner("運算技術指標與量能中..."):
                 st.session_state.selected_ticker = action_df.iloc[selected_row_idx]['代碼']
             
         st.subheader(f"📊 全部自選股狀態 ({timeframe_option})")
-        # ⭐️ 全部自選股表格：加入點擊連動
         display_event = st.dataframe(
             style_dataframe(display_df), 
             use_container_width=True,
@@ -274,7 +290,6 @@ st.subheader("📉 價量與指標複合分析圖")
 
 options = [f"{k} - {v}" for k, v in WATCHLIST.items()]
 if options:
-    # ⭐️ 判斷下拉選單預設值，讓它自動跟隨表格點擊的標的
     default_idx = 0
     if st.session_state.selected_ticker:
         for i, opt in enumerate(options):
@@ -285,7 +300,6 @@ if options:
     selected_option = st.selectbox("請選擇要查看的標的：", options, index=default_idx)
     selected_ticker = selected_option.split(" - ")[0]
     
-    # 為了確保下次手動選單變更不會卡住，同步更新 session state
     st.session_state.selected_ticker = selected_ticker
 
     with st.spinner("繪製圖表中..."):
@@ -310,6 +324,13 @@ if options:
 
             fig.update_layout(height=650, margin=dict(l=10, r=10, t=10, b=10), xaxis_rangeslider_visible=False,
                               legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1), hovermode="x unified")
+            
+            # ⭐️ 新增：自動抓出所有「非交易日（包含週末與假日）」並將其從 X 軸隱藏
+            chart_dates = chart_df.index.strftime('%Y-%m-%d').tolist()
+            dt_all = pd.date_range(start=chart_df.index[0], end=chart_df.index[-1])
+            dt_breaks = [d.strftime('%Y-%m-%d') for d in dt_all if d.strftime('%Y-%m-%d') not in chart_dates]
+            fig.update_xaxes(rangebreaks=[dict(values=dt_breaks)])
+
             st.plotly_chart(fig, use_container_width=True)
 else:
     st.warning("⚠️ 自選股清單目前為空，請從左上角側邊欄加入股票。")
