@@ -180,13 +180,12 @@ with tab_dashboard:
                 macd_text = "MACD>0" if curr_hist > 0 else "MACD<0"
                 ma_text = f"{ma_s_label}>{ma_l_label}" if curr_ma5 > curr_ma10 else f"{ma_s_label}<{ma_l_label}"
                 
-                # ⭐️ 長線保護短線 / 短線找買點：雙向跨週期自動偵測
+                # 長線保護短線 / 短線找買點：雙向跨週期自動偵測
                 is_weekly_bullish = True
                 weekly_status = ""
                 daily_status = ""
                 
                 if interval == "1d":
-                    # 看日線時：檢查週線大趨勢
                     df_w = yf.download(ticker, period="2y", interval="1wk", progress=False)
                     if not df_w.empty and len(df_w) >= 35:
                         close_w = df_w['Close'][ticker] if isinstance(df_w.columns, pd.MultiIndex) else df_w['Close']
@@ -204,7 +203,6 @@ with tab_dashboard:
                             weekly_status = "週線偏空"
                             
                 elif interval == "1wk":
-                    # ⭐️ 看週線時：偷看日線找進場點
                     df_d = yf.download(ticker, period="1y", interval="1d", progress=False)
                     if not df_d.empty and len(df_d) >= 35:
                         close_d = df_d['Close'][ticker] if isinstance(df_d.columns, pd.MultiIndex) else df_d['Close']
@@ -250,9 +248,14 @@ with tab_dashboard:
                     rec_text = "🟡 觀察"
                     detail_reason = f"【方向分歧】{macd_text} 但 {ma_text}，指標未同步"
 
-                # ⭐️ 如果正在看週線，把日線的買賣狀態補在最後面
+                # ⭐️ 優化：正在看週線時，根據日線狀態動態決定前綴文字
                 if interval == "1wk" and daily_status:
-                    detail_reason += f" 👉 找買點：{daily_status}"
+                    if "買入" in daily_status:
+                        detail_reason += f" 👉 找買點：{daily_status}"
+                    elif "賣出" in daily_status:
+                        detail_reason += f" 👉 找賣點：{daily_status}"
+                    else:
+                        detail_reason += f" 👉 短線動態：{daily_status}"
 
                 results.append({
                     "代碼": ticker, 
