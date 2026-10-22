@@ -15,7 +15,10 @@ st_autorefresh(interval=5 * 60 * 1000, key="auto_refresh")
 # ==========================================
 # 本機設定檔存取邏輯 (狀態記憶功能)
 # ==========================================
-SETTINGS_FILE = "user_settings.json"
+import os
+# 強制抓取 app.py 所在的資料夾路徑
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SETTINGS_FILE = os.path.join(BASE_DIR, "user_settings.json")
 
 def load_settings():
     if os.path.exists(SETTINGS_FILE):
