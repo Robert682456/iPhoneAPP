@@ -10,11 +10,16 @@ st.set_page_config(page_title="雙指標波段系統", page_icon="📈", layout=
 # 自動重整機制：每 5 分鐘 (300,000 毫秒) 自動重新載入網頁
 st_autorefresh(interval=5 * 60 * 1000, key="auto_refresh")
 
-# ⭐️ 初始化 Session State
+# ⭐️ 初始化 Session State 與自動連動函式
 if 'selected_ticker' not in st.session_state:
     st.session_state.selected_ticker = None
 
-# ⭐️ 已修正港股代碼 (去零)
+def update_selected_from_search():
+    """當搜尋框內容改變時，自動將 K 線圖切換至搜尋標的"""
+    val = st.session_state.search_ticker.strip().upper()
+    if val:
+        st.session_state.selected_ticker = val
+
 DEFAULT_LIST = """0050.TW,元大台灣50
 2812.TW,台中銀
 1101.TW,台泥
@@ -59,11 +64,11 @@ hide_st_style = """
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
-# 建立手機友善的頂部分頁 (Tabs)
-tab_dashboard, tab_settings = st.tabs(["📊 看盤儀表板", "⚙️ 自選股編輯"])
+# ⭐️ 建立手機友善的頂部分頁 (加入全新的「策略判斷原則」頁面)
+tab_dashboard, tab_rules, tab_settings = st.tabs(["📊 看盤儀表板", "📖 策略判斷原則", "⚙️ 自選股編輯"])
 
 # ==========================================
-# 分頁 2：自選股編輯頁面
+# 分頁 3：自選股編輯頁面
 # ==========================================
 with tab_settings:
     st.subheader("⚙️ 編輯自選股清單")
@@ -77,6 +82,47 @@ with tab_settings:
         if ',' in line:
             ticker, name = line.split(',', 1)
             WATCHLIST[ticker.strip()] = name.strip()
+
+# ==========================================
+# 分頁 2：策略判斷原則 (全新獨立頁面)
+# ==========================================
+with tab_rules:
+    st.header("📖 雙指標波段系統 - 判斷原則")
+    st.markdown("""
+    本系統以 **「週線級別的買入訊號」** 作為核心標準與操作前提，徹底貫徹 **「長線保護短線」** 的交易紀律。
+    
+    ### 🎯 核心精神：週線決定方向，日線尋找買點
+    必須在「週線大趨勢偏多」的保護傘下，才能在「日線」尋找切入發動點。嚴格禁止在週線空頭趨勢中搶買日線的反彈。
+
+    ---
+
+    ### 🟢 買入標準 (必須同時滿足)
+    1. **大趨勢保護 (週線條件 - 先決標準)**：
+       - **週線 MACD > 0**：柱狀圖位於零軸之上，屬於長線多頭格局。
+       - **週線 5MA > 10MA**：短期均線大於長期均線。
+    2. **精準發動點 (日線條件)**：
+       - **日線 MACD > 0**：短線動能翻多。
+       - **日線 5MA > 10MA**：短線均線黃金交叉。
+       - **帶量上攻**：當日成交量必須 **大於 5日均量**，確認有主力資金點火。
+    
+    👉 *當以上條件完全符合時，系統會判定為「🟢 買入 (長短線共振)」。*
+
+    ---
+
+    ### 🔴 賣出與防守標準 (滿足其一即應警戒)
+    1. **動能轉弱 (MACD 死叉)**：日線 MACD 柱狀圖由紅翻綠 (MACD < 0)。
+    2. **趨勢跌破 (均線死叉)**：日線 5MA 跌破 10MA。
+    3. **生命線跌破 (破月線)**：日線收盤價跌穿 20MA (月線)，視為波段防守線失守。
+
+    👉 *當日線出現雙空頭 (MACD < 0 且 5MA < 10MA) 時，系統會直接判定為「🔴 賣出」，建議迅速收回資金。*
+
+    ---
+
+    ### 🟡 觀察狀態 (不動作)
+    - **量能不足**：日線雖然均線與MACD雙多頭，但當日成交量小於5日均量，視為無量虛漲。
+    - **短多長空**：日線呈現多頭，但「週線」處於偏空狀態。這屬於下跌趨勢中的「反彈」，系統會強制降級為觀察，不建議進場。
+    - **方向分歧**：均線與 MACD 其中一個多頭、另一個空頭，指標未完全同步。
+    """)
 
 # ==========================================
 # 分頁 1：主看盤儀表板
@@ -397,9 +443,12 @@ with tab_dashboard:
         st.subheader("🔍 臨時標的快速分析")
         col_t1, col_t2, col_t3 = st.columns([2, 2, 2])
         with col_t1:
-            temp_ticker = st.text_input("輸入代碼 (例：2317.TW)", "").strip().upper()
+            st.text_input("輸入代碼 (例：2317.TW)", key="search_ticker", on_change=update_selected_from_search)
         with col_t2:
-            temp_name = st.text_input("輸入名稱 (選填，例：鴻海)", "").strip()
+            st.text_input("輸入名稱 (選填，例：鴻海)", key="search_name")
+
+        temp_ticker = st.session_state.search_ticker.strip().upper()
+        temp_name = st.session_state.search_name.strip()
 
         if temp_ticker:
             disp_name = temp_name if temp_name else temp_ticker
@@ -476,7 +525,13 @@ with tab_dashboard:
     st.divider()
     st.subheader("📉 價量與指標複合分析圖")
 
-    options = [f"{k} - {v}" for k, v in WATCHLIST.items()]
+    chart_options_dict = WATCHLIST.copy()
+    if temp_ticker and temp_ticker not in chart_options_dict:
+        disp_name = temp_name if temp_name else temp_ticker
+        chart_options_dict[temp_ticker] = disp_name
+
+    options = [f"{k} - {v}" for k, v in chart_options_dict.items()]
+    
     if options:
         default_idx = 0
         if st.session_state.selected_ticker:
@@ -492,6 +547,7 @@ with tab_dashboard:
 
         with st.spinner("繪製圖表中..."):
             chart_df = get_chart_data(selected_ticker, tf_interval, "5y")
+            
             if chart_df is not None:
                 fig = make_subplots(rows=3, cols=1, shared_xaxes=True, 
                                     vertical_spacing=0.03, row_heights=[0.5, 0.2, 0.3])
@@ -559,6 +615,8 @@ with tab_dashboard:
                 )
                 
                 st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+            else:
+                st.warning("⚠️ 無法取得該標的的 K 線圖資料，請確認代碼是否正確。")
     else:
         st.warning("⚠️ 自選股清單目前為空，請從上方的『⚙️ 自選股編輯』分頁加入股票。")
 
