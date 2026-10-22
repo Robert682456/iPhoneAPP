@@ -104,8 +104,6 @@ with tab_rules:
        - **日線 MACD > 0**：短線動能翻多。
        - **日線 5MA > 10MA**：短線均線黃金交叉。
        - **帶量上攻**：當日成交量必須 **大於 5日均量**，確認有主力資金點火。
-    
-    👉 *當以上條件完全符合時，系統會判定為「🟢 買入 (長短線共振)」。*
 
     ---
 
@@ -114,14 +112,12 @@ with tab_rules:
     2. **趨勢跌破 (均線死叉)**：日線 5MA 跌破 10MA。
     3. **生命線跌破 (破月線)**：日線收盤價跌穿 20MA (月線)，視為波段防守線失守。
 
-    👉 *當日線出現雙空頭 (MACD < 0 且 5MA < 10MA) 時，系統會直接判定為「🔴 賣出」，建議迅速收回資金。*
-
     ---
-
-    ### 🟡 觀察狀態 (不動作)
-    - **量能不足**：日線雖然均線與MACD雙多頭，但當日成交量小於5日均量，視為無量虛漲。
-    - **短多長空**：日線呈現多頭，但「週線」處於偏空狀態。這屬於下跌趨勢中的「反彈」，系統會強制降級為觀察，不建議進場。
-    - **方向分歧**：均線與 MACD 其中一個多頭、另一個空頭，指標未完全同步。
+    
+    ### 📉 SPC 極端乖離監控 (布林通道)
+    本系統導入品管工程的 SPC (Statistical Process Control) 管制圖邏輯，監控極端乖離：
+    - **UCL 管制上限 ($20MA + 2\sigma$)**：突破上軌代表製程失控(極端超漲)，隨時面臨均值回歸的拉回壓力，不宜追高。
+    - **LCL 管制下限 ($20MA - 2\sigma$)**：跌破下軌代表極端超跌，此時乖離率極大，往往醞釀強烈的技術性反彈。
     """)
 
 # ==========================================
@@ -149,14 +145,14 @@ with tab_dashboard:
         ma_s_lbl = "5D"
         ma_l_lbl = "10D"
 
-    # --- 大盤(0050) 多空環境燈號分析 ---
+    # ⭐️ 修改：讓總體指標支援動態傳入 ticker
     @st.cache_data(ttl=300)
-    def get_market_trend(interval, period):
+    def get_market_trend(ticker, interval, period):
         try:
-            df = yf.download("0050.TW", period=period, interval=interval, progress=False)
+            df = yf.download(ticker, period=period, interval=interval, progress=False)
             if df.empty: return None
             
-            close = df['Close']["0050.TW"] if isinstance(df.columns, pd.MultiIndex) else df['Close']
+            close = df['Close'][ticker] if isinstance(df.columns, pd.MultiIndex) else df['Close']
             close = close.dropna()
             
             ema12, ema26 = close.ewm(span=12, adjust=False).mean(), close.ewm(span=26, adjust=False).mean()
@@ -177,7 +173,6 @@ with tab_dashboard:
         except Exception:
             return None
 
-    # 1. 運算所有自選股最新訊號
     @st.cache_data(ttl=300)
     def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
         results = []
@@ -211,6 +206,13 @@ with tab_dashboard:
                 curr_hist = hist.iloc[-1]
                 curr_vol, curr_vol_ma5 = volume.iloc[-1], vol_ma5.iloc[-1]
                 
+                # SPC 管制圖邏輯運算 (Bollinger Bands)
+                std20 = close.rolling(20).std()
+                ucl = ma20 + 2 * std20
+                lcl = ma20 - 2 * std20
+                curr_ucl = ucl.iloc[-1]
+                curr_lcl = lcl.iloc[-1]
+
                 vol_condition = curr_vol > curr_vol_ma5  
                 
                 change_pct = ((curr_close - prev_close) / prev_close) * 100
@@ -309,6 +311,12 @@ with tab_dashboard:
                     else:
                         detail_reason += f" 👉 短線動態：{daily_status}"
 
+                # 加入 SPC 乖離警告
+                if curr_close >= curr_ucl:
+                    detail_reason += " ⚠️ SPC警示：突破UCL上軌，極端超漲提防拉回"
+                elif curr_close <= curr_lcl:
+                    detail_reason += " ⚠️ SPC警示：跌破LCL下軌，極端超跌醞釀反彈"
+
                 results.append({
                     "代碼": ticker, 
                     "名稱": name, 
@@ -337,7 +345,6 @@ with tab_dashboard:
             
         return df_results
 
-    # 策略歷史回測引擎
     @st.cache_data(ttl=86400)
     def calculate_win_rate(ticker, name, interval):
         try:
@@ -400,7 +407,6 @@ with tab_dashboard:
         if hasattr(df.style, "map"): return df.style.map(color_trend, subset=['收盤價(漲跌)'])
         else: return df.style.applymap(color_trend, subset=['收盤價(漲跌)'])
 
-    # 抓取單一股票完整數據畫圖用
     @st.cache_data(ttl=300)
     def get_chart_data(ticker, interval, period):
         df = yf.download(ticker, period=period, interval=interval, progress=False)
@@ -413,6 +419,11 @@ with tab_dashboard:
         df['MA20'] = df['Close'].rolling(window=20).mean() 
         df['Vol_MA5'] = df['Volume'].rolling(window=5).mean()
         
+        # 繪圖所需的 SPC 資料 (UCL / LCL)
+        df['STD20'] = df['Close'].rolling(window=20).std()
+        df['UCL'] = df['MA20'] + 2 * df['STD20']
+        df['LCL'] = df['MA20'] - 2 * df['STD20']
+
         df['DIF'] = df['Close'].ewm(span=12, adjust=False).mean() - df['Close'].ewm(span=26, adjust=False).mean()
         df['DEA'] = df['DIF'].ewm(span=9, adjust=False).mean()
         df['MACD_Hist'] = df['DIF'] - df['DEA']
@@ -426,102 +437,106 @@ with tab_dashboard:
     if st.button("🔄 手動強制刷新 (重置快取)"):
         st.cache_data.clear()
 
-    with st.spinner("運算技術指標與量能中..."):
-        market_trend = get_market_trend(tf_interval, tf_period)
+    # ⭐️ 讓使用者自訂大盤參考標的
+    market_ticker = st.text_input("📊 設定總體資金水位參考標的 (預設 0050.TW)：", "0050.TW").strip().upper()
+
+    with st.spinner(f"運算 {market_ticker} 總體指標中..."):
+        market_trend = get_market_trend(market_ticker, tf_interval, tf_period)
         if market_trend:
             st.markdown(
                 f'''
                 <div style="background-color: {market_trend['color']}; padding: 15px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #ccc;">
-                    <h4 style="margin: 0; color: #333;">🧭 總體資金水位儀表板 (0050 {timeframe_option})</h4>
+                    <h4 style="margin: 0; color: #333;">🧭 總體資金水位儀表板 ({market_ticker} {timeframe_option})</h4>
                     <p style="margin: 5px 0 0 0; font-size: 18px; font-weight: bold; color: #333;">狀態：{market_trend['status']}</p>
                     <p style="margin: 5px 0 0 0; color: #555;">💡 建議：{market_trend['advice']}</p>
                 </div>
                 ''', unsafe_allow_html=True
             )
+        else:
+            st.warning(f"⚠️ 無法取得 {market_ticker} 的資料，請確認代碼是否正確。")
 
-        st.divider()
-        st.subheader("🔍 臨時標的快速分析")
-        col_t1, col_t2, col_t3 = st.columns([2, 2, 2])
-        with col_t1:
-            st.text_input("輸入代碼 (例：2317.TW)", key="search_ticker", on_change=update_selected_from_search)
-        with col_t2:
-            st.text_input("輸入名稱 (選填，例：鴻海)", key="search_name")
+    st.divider()
+    st.subheader("🔍 臨時標的快速分析")
+    col_t1, col_t2, col_t3 = st.columns([2, 2, 2])
+    with col_t1:
+        st.text_input("輸入代碼 (例：2317.TW)", key="search_ticker", on_change=update_selected_from_search)
+    with col_t2:
+        st.text_input("輸入名稱 (選填，例：鴻海)", key="search_name")
 
-        temp_ticker = st.session_state.search_ticker.strip().upper()
-        temp_name = st.session_state.search_name.strip()
+    temp_ticker = st.session_state.search_ticker.strip().upper()
+    temp_name = st.session_state.search_name.strip()
 
-        if temp_ticker:
-            disp_name = temp_name if temp_name else temp_ticker
-            temp_dict = {temp_ticker: disp_name}
-            with st.spinner(f"正在分析 {temp_ticker}..."):
-                temp_df = analyze_signals(tf_interval, tf_period, ma_s_lbl, ma_l_lbl, temp_dict)
-                
-            if not temp_df.empty and "⚠️ 無資料" not in temp_df.iloc[0]['收盤價(漲跌)']:
-                st.dataframe(style_dataframe(temp_df), use_container_width=True)
-                with col_t3:
-                    st.write("") 
-                    st.write("")
-                    if st.button("➕ 加入自選股"):
-                        if temp_ticker not in st.session_state.watchlist_text:
-                            st.session_state.watchlist_text += f"\n{temp_ticker},{disp_name}"
-                            st.rerun()
-                        else:
-                            st.warning("此標的已在您的自選股清單中。")
-            else:
-                st.error("無法取得該代碼資料，請確認代碼是否正確（美股 AAPL，台股 2317.TW，港股去零 700.HK）。")
-        st.divider()
-
-        display_df = analyze_signals(tf_interval, tf_period, ma_s_lbl, ma_l_lbl, WATCHLIST)
-        
-        if not display_df.empty:
-            st.subheader(f"📊 自選股狀態總覽 ({timeframe_option})")
+    if temp_ticker:
+        disp_name = temp_name if temp_name else temp_ticker
+        temp_dict = {temp_ticker: disp_name}
+        with st.spinner(f"正在分析 {temp_ticker}..."):
+            temp_df = analyze_signals(tf_interval, tf_period, ma_s_lbl, ma_l_lbl, temp_dict)
             
-            # ⭐️ 這裡將預設 index 改為 1 (預設選取 "🟢 只看買入")
-            filter_opt = st.radio(
-                "🔍 快速篩選：", 
-                ["👀 顯示全部", "🟢 只看買入", "🔴 只看賣出", "⚡ 剛發生交叉"], 
-                index=1,
-                horizontal=True
-            )
-            
-            filtered_df = display_df.copy()
-            if filter_opt == "🟢 只看買入":
-                filtered_df = filtered_df[filtered_df['建議'].str.contains("買入", na=False)]
-            elif filter_opt == "🔴 只看賣出":
-                filtered_df = filtered_df[filtered_df['建議'].str.contains("賣出", na=False)]
-            elif filter_opt == "⚡ 剛發生交叉":
-                filtered_df = filtered_df[filtered_df['最新動態'] != "-"]
-
-            if filtered_df.empty: 
-                st.info("目前無符合篩選條件的標的。")
-            else: 
-                display_event = st.dataframe(
-                    style_dataframe(filtered_df), 
-                    use_container_width=True,
-                    on_select="rerun",          
-                    selection_mode="single-row" 
-                )
-                if display_event.selection.rows:
-                    selected_row_idx = display_event.selection.rows[0]
-                    st.session_state.selected_ticker = filtered_df.iloc[selected_row_idx]['代碼']
-            
-            buy_df = display_df[display_df['建議'].str.contains("買入", na=False)]
-            with st.expander("📊 計算『買入』標的歷史勝率 (近一年回測)"):
-                if st.button("🚀 執行歷史回測"):
-                    if buy_df.empty:
-                        st.warning("目前沒有處於『🟢 買入』狀態的標的，無法進行回測。")
+        if not temp_df.empty and "⚠️ 無資料" not in temp_df.iloc[0]['收盤價(漲跌)']:
+            st.dataframe(style_dataframe(temp_df), use_container_width=True)
+            with col_t3:
+                st.write("") 
+                st.write("")
+                if st.button("➕ 加入自選股"):
+                    if temp_ticker not in st.session_state.watchlist_text:
+                        st.session_state.watchlist_text += f"\n{temp_ticker},{disp_name}"
+                        st.rerun()
                     else:
-                        with st.spinner("正在進行歷史交易模擬回測..."):
-                            backtest_results = []
-                            for _, row in buy_df.iterrows():
-                                res = calculate_win_rate(row['代碼'], row['名稱'], tf_interval)
-                                if res: backtest_results.append(res)
-                            
-                            if backtest_results:
-                                st.dataframe(pd.DataFrame(backtest_results), use_container_width=True)
-                                st.caption("※ 回測邏輯：過去一年內，當均線與MACD雙多頭且帶量時買進；雙空頭時賣出。")
-                            else:
-                                st.error("無法取得回測資料。")
+                        st.warning("此標的已在您的自選股清單中。")
+        else:
+            st.error("無法取得該代碼資料，請確認代碼是否正確（美股 AAPL，台股 2317.TW，港股去零 700.HK）。")
+    st.divider()
+
+    display_df = analyze_signals(tf_interval, tf_period, ma_s_lbl, ma_l_lbl, WATCHLIST)
+    
+    if not display_df.empty:
+        st.subheader(f"📊 自選股狀態總覽 ({timeframe_option})")
+        
+        filter_opt = st.radio(
+            "🔍 快速篩選：", 
+            ["👀 顯示全部", "🟢 只看買入", "🔴 只看賣出", "⚡ 剛發生交叉"], 
+            index=1,
+            horizontal=True
+        )
+        
+        filtered_df = display_df.copy()
+        if filter_opt == "🟢 只看買入":
+            filtered_df = filtered_df[filtered_df['建議'].str.contains("買入", na=False)]
+        elif filter_opt == "🔴 只看賣出":
+            filtered_df = filtered_df[filtered_df['建議'].str.contains("賣出", na=False)]
+        elif filter_opt == "⚡ 剛發生交叉":
+            filtered_df = filtered_df[filtered_df['最新動態'] != "-"]
+
+        if filtered_df.empty: 
+            st.info("目前無符合篩選條件的標的。")
+        else: 
+            display_event = st.dataframe(
+                style_dataframe(filtered_df), 
+                use_container_width=True,
+                on_select="rerun",          
+                selection_mode="single-row" 
+            )
+            if display_event.selection.rows:
+                selected_row_idx = display_event.selection.rows[0]
+                st.session_state.selected_ticker = filtered_df.iloc[selected_row_idx]['代碼']
+        
+        buy_df = display_df[display_df['建議'].str.contains("買入", na=False)]
+        with st.expander("📊 計算『買入』標的歷史勝率 (近一年回測)"):
+            if st.button("🚀 執行歷史回測"):
+                if buy_df.empty:
+                    st.warning("目前沒有處於『🟢 買入』狀態的標的，無法進行回測。")
+                else:
+                    with st.spinner("正在進行歷史交易模擬回測..."):
+                        backtest_results = []
+                        for _, row in buy_df.iterrows():
+                            res = calculate_win_rate(row['代碼'], row['名稱'], tf_interval)
+                            if res: backtest_results.append(res)
+                        
+                        if backtest_results:
+                            st.dataframe(pd.DataFrame(backtest_results), use_container_width=True)
+                            st.caption("※ 回測邏輯：過去一年內，當均線與MACD雙多頭且帶量時買進；雙空頭時賣出。")
+                        else:
+                            st.error("無法取得回測資料。")
 
     # --- 互動 K 線圖區塊 ---
     st.divider()
@@ -561,6 +576,24 @@ with tab_dashboard:
                 fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['MA5'], line=dict(color='orange', width=1.5), name=f'{ma_s_lbl} MA'), row=1, col=1)
                 fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['MA10'], line=dict(color='blue', width=1.5), name=f'{ma_l_lbl} MA'), row=1, col=1)
                 fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['MA20'], line=dict(color='gray', dash='dot', width=1.5), name='20MA (月線)'), row=1, col=1)
+                
+                # 繪製 SPC 管制區間 (Bollinger Bands 上下軌)
+                fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['UCL'], line=dict(color='rgba(150, 150, 150, 0.3)', width=1, dash='dash'), name='UCL (上軌)'), row=1, col=1)
+                fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['LCL'], line=dict(color='rgba(150, 150, 150, 0.3)', width=1, dash='dash'), fill='tonexty', fillcolor='rgba(150, 150, 150, 0.1)', name='LCL (下軌)'), row=1, col=1)
+
+                # 自動計算並繪製近期最高價(壓力)與最低價(支撐)水平線
+                lookback = 60 if tf_interval == "1d" else 26
+                if len(chart_df) >= lookback:
+                    recent_high = chart_df['High'].tail(lookback).max()
+                    recent_low = chart_df['Low'].tail(lookback).min()
+                    
+                    fig.add_hline(y=recent_high, line_dash="dash", line_color="rgba(239, 83, 80, 0.6)", line_width=1.5,
+                                  annotation_text=f"近期壓力 {recent_high:.2f}", annotation_position="top right", 
+                                  annotation_font=dict(color="#ef5350", size=12), row=1, col=1)
+                    
+                    fig.add_hline(y=recent_low, line_dash="dash", line_color="rgba(38, 166, 154, 0.6)", line_width=1.5,
+                                  annotation_text=f"近期支撐 {recent_low:.2f}", annotation_position="bottom right", 
+                                  annotation_font=dict(color="#26a69a", size=12), row=1, col=1)
 
                 fig.add_trace(go.Bar(x=chart_df.index, y=chart_df['Volume'], marker_color=chart_df['Vol_Color'], name='成交量'), row=2, col=1)
                 fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['Vol_MA5'], line=dict(color='orange', width=1), name='5均量'), row=2, col=1)
