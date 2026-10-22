@@ -104,6 +104,8 @@ with tab_rules:
        - **日線 MACD > 0**：短線動能翻多。
        - **日線 5MA > 10MA**：短線均線黃金交叉。
        - **帶量上攻**：當日成交量必須 **大於 5日均量**，確認有主力資金點火。
+    
+    👉 *當以上條件完全符合時，系統會判定為「🟢 買入 (長短線共振)」。*
 
     ---
 
@@ -112,12 +114,14 @@ with tab_rules:
     2. **趨勢跌破 (均線死叉)**：日線 5MA 跌破 10MA。
     3. **生命線跌破 (破月線)**：日線收盤價跌穿 20MA (月線)，視為波段防守線失守。
 
+    👉 *當日線出現雙空頭 (MACD < 0 且 5MA < 10MA) 時，系統會直接判定為「🔴 賣出」，建議迅速收回資金。*
+
     ---
-    
-    ### 📉 SPC 極端乖離監控 (布林通道)
-    本系統導入品管工程的 SPC (Statistical Process Control) 管制圖邏輯，監控極端乖離：
-    - **UCL 管制上限 ($20MA + 2\sigma$)**：突破上軌代表製程失控(極端超漲)，隨時面臨均值回歸的拉回壓力，不宜追高。
-    - **LCL 管制下限 ($20MA - 2\sigma$)**：跌破下軌代表極端超跌，此時乖離率極大，往往醞釀強烈的技術性反彈。
+
+    ### 🟡 觀察狀態 (不動作)
+    - **量能不足**：日線雖然均線與MACD雙多頭，但當日成交量小於5日均量，視為無量虛漲。
+    - **短多長空**：日線呈現多頭，但「週線」處於偏空狀態。這屬於下跌趨勢中的「反彈」，系統會強制降級為觀察，不建議進場。
+    - **方向分歧**：均線與 MACD 其中一個多頭、另一個空頭，指標未完全同步。
     """)
 
 # ==========================================
@@ -145,6 +149,7 @@ with tab_dashboard:
         ma_s_lbl = "5D"
         ma_l_lbl = "10D"
 
+    # --- 大盤(0050) 多空環境燈號分析 ---
     @st.cache_data(ttl=300)
     def get_market_trend(interval, period):
         try:
@@ -172,6 +177,7 @@ with tab_dashboard:
         except Exception:
             return None
 
+    # 1. 運算所有自選股最新訊號
     @st.cache_data(ttl=300)
     def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
         results = []
@@ -205,13 +211,6 @@ with tab_dashboard:
                 curr_hist = hist.iloc[-1]
                 curr_vol, curr_vol_ma5 = volume.iloc[-1], vol_ma5.iloc[-1]
                 
-                # ⭐️ SPC 管制圖邏輯運算 (Bollinger Bands)
-                std20 = close.rolling(20).std()
-                ucl = ma20 + 2 * std20
-                lcl = ma20 - 2 * std20
-                curr_ucl = ucl.iloc[-1]
-                curr_lcl = lcl.iloc[-1]
-
                 vol_condition = curr_vol > curr_vol_ma5  
                 
                 change_pct = ((curr_close - prev_close) / prev_close) * 100
@@ -310,12 +309,6 @@ with tab_dashboard:
                     else:
                         detail_reason += f" 👉 短線動態：{daily_status}"
 
-                # ⭐️ 加入 SPC 乖離警告 (若觸及 UCL 或 LCL)
-                if curr_close >= curr_ucl:
-                    detail_reason += " ⚠️ SPC警示：突破UCL上軌，極端超漲提防拉回"
-                elif curr_close <= curr_lcl:
-                    detail_reason += " ⚠️ SPC警示：跌破LCL下軌，極端超跌醞釀反彈"
-
                 results.append({
                     "代碼": ticker, 
                     "名稱": name, 
@@ -344,6 +337,7 @@ with tab_dashboard:
             
         return df_results
 
+    # 策略歷史回測引擎
     @st.cache_data(ttl=86400)
     def calculate_win_rate(ticker, name, interval):
         try:
@@ -406,6 +400,7 @@ with tab_dashboard:
         if hasattr(df.style, "map"): return df.style.map(color_trend, subset=['收盤價(漲跌)'])
         else: return df.style.applymap(color_trend, subset=['收盤價(漲跌)'])
 
+    # 抓取單一股票完整數據畫圖用
     @st.cache_data(ttl=300)
     def get_chart_data(ticker, interval, period):
         df = yf.download(ticker, period=period, interval=interval, progress=False)
@@ -418,11 +413,6 @@ with tab_dashboard:
         df['MA20'] = df['Close'].rolling(window=20).mean() 
         df['Vol_MA5'] = df['Volume'].rolling(window=5).mean()
         
-        # ⭐️ 繪圖所需的 SPC 資料 (UCL / LCL)
-        df['STD20'] = df['Close'].rolling(window=20).std()
-        df['UCL'] = df['MA20'] + 2 * df['STD20']
-        df['LCL'] = df['MA20'] - 2 * df['STD20']
-
         df['DIF'] = df['Close'].ewm(span=12, adjust=False).mean() - df['Close'].ewm(span=26, adjust=False).mean()
         df['DEA'] = df['DIF'].ewm(span=9, adjust=False).mean()
         df['MACD_Hist'] = df['DIF'] - df['DEA']
@@ -486,6 +476,7 @@ with tab_dashboard:
         if not display_df.empty:
             st.subheader(f"📊 自選股狀態總覽 ({timeframe_option})")
             
+            # ⭐️ 這裡將預設 index 改為 1 (預設選取 "🟢 只看買入")
             filter_opt = st.radio(
                 "🔍 快速篩選：", 
                 ["👀 顯示全部", "🟢 只看買入", "🔴 只看賣出", "⚡ 剛發生交叉"], 
@@ -570,10 +561,6 @@ with tab_dashboard:
                 fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['MA5'], line=dict(color='orange', width=1.5), name=f'{ma_s_lbl} MA'), row=1, col=1)
                 fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['MA10'], line=dict(color='blue', width=1.5), name=f'{ma_l_lbl} MA'), row=1, col=1)
                 fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['MA20'], line=dict(color='gray', dash='dot', width=1.5), name='20MA (月線)'), row=1, col=1)
-                
-                # ⭐️ 繪製 SPC 管制區間 (Bollinger Bands 上下軌)
-                fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['UCL'], line=dict(color='rgba(150, 150, 150, 0.3)', width=1, dash='dash'), name='UCL (上軌)'), row=1, col=1)
-                fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['LCL'], line=dict(color='rgba(150, 150, 150, 0.3)', width=1, dash='dash'), fill='tonexty', fillcolor='rgba(150, 150, 150, 0.1)', name='LCL (下軌)'), row=1, col=1)
 
                 fig.add_trace(go.Bar(x=chart_df.index, y=chart_df['Volume'], marker_color=chart_df['Vol_Color'], name='成交量'), row=2, col=1)
                 fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['Vol_MA5'], line=dict(color='orange', width=1), name='5均量'), row=2, col=1)
