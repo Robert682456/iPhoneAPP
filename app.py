@@ -14,6 +14,7 @@ st_autorefresh(interval=5 * 60 * 1000, key="auto_refresh")
 if 'selected_ticker' not in st.session_state:
     st.session_state.selected_ticker = None
 
+# ⭐️ 已修正港股代碼 (去零)
 DEFAULT_LIST = """0050.TW,元大台灣50
 2812.TW,台中銀
 1101.TW,台泥
@@ -21,8 +22,8 @@ DEFAULT_LIST = """0050.TW,元大台灣50
 3008.TW,大立光
 3362.TWO,先進光
 1415.HK,高偉電子
-02342.HK,京信通信
-01729.HK,匯聚科技
+2342.HK,京信通信
+1729.HK,匯聚科技
 VOO,VOO標普500
 QQQM,QQQM納指100
 SGOV,SGOV美債
@@ -254,8 +255,7 @@ with tab_dashboard:
                     rec_text = "🟡 觀察"
                     detail_reason = f"【方向分歧】{macd_text} 但 {ma_text}，指標未同步"
 
-                # ⭐️ 恢復：無論週線是買、賣或觀察，皆同步顯示日線短線動態
-                if interval == "1wk" and daily_status:
+                if interval == "1wk" and daily_status and "觀察" not in rec_text:
                     if "買入" in daily_status:
                         detail_reason += f" 👉 找買點：{daily_status}"
                     elif "賣出" in daily_status:
@@ -393,7 +393,6 @@ with tab_dashboard:
                 ''', unsafe_allow_html=True
             )
 
-        # ⭐️ 新增：動態搜尋框與一鍵加入自選股
         st.divider()
         st.subheader("🔍 臨時標的快速分析")
         col_t1, col_t2, col_t3 = st.columns([2, 2, 2])
@@ -423,7 +422,6 @@ with tab_dashboard:
                 st.error("無法取得該代碼資料，請確認代碼是否正確（美股 AAPL，台股 2317.TW，港股去零 700.HK）。")
         st.divider()
 
-        # 取得包含所有自選股的完整清單
         display_df = analyze_signals(tf_interval, tf_period, ma_s_lbl, ma_l_lbl, WATCHLIST)
         
         if not display_df.empty:
