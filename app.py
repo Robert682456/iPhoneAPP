@@ -4,21 +4,62 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from streamlit_autorefresh import st_autorefresh
+import json
+import os
 
 st.set_page_config(page_title="雙指標波段系統", page_icon="📈", layout="wide")
 
 # 自動重整機制：每 5 分鐘 (300,000 毫秒) 自動重新載入網頁
 st_autorefresh(interval=5 * 60 * 1000, key="auto_refresh")
 
-# ⭐️ 初始化 Session State 與自動連動函式
+# ==========================================
+# 本機設定檔存取邏輯 (狀態記憶功能)
+# ==========================================
+SETTINGS_FILE = "user_settings.json"
+
+def load_settings():
+    if os.path.exists(SETTINGS_FILE):
+        try:
+            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"search_ticker": "", "search_name": "", "market_ticker": "0050.TW"}
+
+def save_settings():
+    settings = {
+        "search_ticker": st.session_state.search_ticker,
+        "search_name": st.session_state.search_name,
+        "market_ticker": st.session_state.get("market_ticker_input", "0050.TW")
+    }
+    try:
+        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(settings, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+# 初始化 Session State
+settings = load_settings()
+
 if 'selected_ticker' not in st.session_state:
     st.session_state.selected_ticker = None
+if 'search_ticker' not in st.session_state:
+    st.session_state.search_ticker = settings.get("search_ticker", "")
+if 'search_name' not in st.session_state:
+    st.session_state.search_name = settings.get("search_name", "")
+if 'market_ticker_input' not in st.session_state:
+    st.session_state.market_ticker_input = settings.get("market_ticker", "0050.TW")
 
 def update_selected_from_search():
-    """當搜尋框內容改變時，自動將 K 線圖切換至搜尋標的"""
+    """當搜尋框內容改變時，自動將 K 線圖切換至搜尋標的，並觸發存檔"""
     val = st.session_state.search_ticker.strip().upper()
     if val:
         st.session_state.selected_ticker = val
+    save_settings()
+
+def update_other_inputs():
+    """當名稱或大盤代碼改變時，觸發存檔"""
+    save_settings()
 
 DEFAULT_LIST = """0050.TW,元大台灣50
 2812.TW,台中銀
@@ -116,8 +157,8 @@ with tab_rules:
     
     ### 📉 SPC 極端乖離監控 (布林通道)
     本系統導入品管工程的 SPC (Statistical Process Control) 管制圖邏輯，監控極端乖離：
-    - **UCL 管制上限 ($20MA + 2\sigma$)**：突破上軌代表製程失控(極端超漲)，隨時面臨均值回歸的拉回壓力，不宜追高。
-    - **LCL 管制下限 ($20MA - 2\sigma$)**：跌破下軌代表極端超跌，此時乖離率極大，往往醞釀強烈的技術性反彈。
+    - **UCL 管制上限 (20MA + 2σ)**：突破上軌代表製程失控(極端超漲)，隨時面臨均值回歸的拉回壓力，不宜追高。
+    - **LCL 管制下限 (20MA - 2σ)**：跌破下軌代表極端超跌，此時乖離率極大，往往醞釀強烈的技術性反彈。
     """)
 
 # ==========================================
@@ -145,7 +186,6 @@ with tab_dashboard:
         ma_s_lbl = "5D"
         ma_l_lbl = "10D"
 
-    # ⭐️ 修改：讓總體指標支援動態傳入 ticker
     @st.cache_data(ttl=300)
     def get_market_trend(ticker, interval, period):
         try:
@@ -183,7 +223,8 @@ with tab_dashboard:
                     results.append({
                         "代碼": ticker, "名稱": name, "收盤價(漲跌)": "⚠️ 無資料",
                         "建議": "⚪ 未知", "最新動態": "-",
-                        "詳細判定原因": "無足夠 K 線資料，請檢查代碼格式 (如港股請去 0)"
+                        "詳細判定原因": "無足夠 K 線資料，請檢查代碼格式 (如港股請去 0)",
+                        "Yahoo股市": f"https://finance.yahoo.com/quote/{ticker}"
                     })
                     continue
                 
@@ -206,7 +247,6 @@ with tab_dashboard:
                 curr_hist = hist.iloc[-1]
                 curr_vol, curr_vol_ma5 = volume.iloc[-1], vol_ma5.iloc[-1]
                 
-                # SPC 管制圖邏輯運算 (Bollinger Bands)
                 std20 = close.rolling(20).std()
                 ucl = ma20 + 2 * std20
                 lcl = ma20 - 2 * std20
@@ -283,7 +323,6 @@ with tab_dashboard:
                         else:
                             daily_status = "🟡日線方向分歧"
 
-                # 依據雙週期邏輯給出最終建議
                 if target_position == 100:
                     if vol_condition:
                         if interval == "1d" and not is_weekly_bullish:
@@ -311,7 +350,6 @@ with tab_dashboard:
                     else:
                         detail_reason += f" 👉 短線動態：{daily_status}"
 
-                # 加入 SPC 乖離警告
                 if curr_close >= curr_ucl:
                     detail_reason += " ⚠️ SPC警示：突破UCL上軌，極端超漲提防拉回"
                 elif curr_close <= curr_lcl:
@@ -323,13 +361,15 @@ with tab_dashboard:
                     "收盤價(漲跌)": price_display,
                     "建議": rec_text,
                     "最新動態": " / ".join(actions) if actions else "-",
-                    "詳細判定原因": detail_reason
+                    "詳細判定原因": detail_reason,
+                    "Yahoo股市": f"https://finance.yahoo.com/quote/{ticker}"
                 })
             except Exception: 
                 results.append({
                     "代碼": ticker, "名稱": name, "收盤價(漲跌)": "⚠️ 錯誤",
                     "建議": "⚪ 未知", "最新動態": "-",
-                    "詳細判定原因": "抓取過程發生異常，請稍後刷新"
+                    "詳細判定原因": "抓取過程發生異常，請稍後刷新",
+                    "Yahoo股市": f"https://finance.yahoo.com/quote/{ticker}"
                 })
                 continue
             
@@ -419,7 +459,6 @@ with tab_dashboard:
         df['MA20'] = df['Close'].rolling(window=20).mean() 
         df['Vol_MA5'] = df['Volume'].rolling(window=5).mean()
         
-        # 繪圖所需的 SPC 資料 (UCL / LCL)
         df['STD20'] = df['Close'].rolling(window=20).std()
         df['UCL'] = df['MA20'] + 2 * df['STD20']
         df['LCL'] = df['MA20'] - 2 * df['STD20']
@@ -437,8 +476,8 @@ with tab_dashboard:
     if st.button("🔄 手動強制刷新 (重置快取)"):
         st.cache_data.clear()
 
-    # ⭐️ 讓使用者自訂大盤參考標的
-    market_ticker = st.text_input("📊 設定總體資金水位參考標的 (預設 0050.TW)：", "0050.TW").strip().upper()
+    # 綁定 key 與 on_change 觸發存檔
+    market_ticker = st.text_input("📊 設定總體資金水位參考標的 (預設 0050.TW)：", key="market_ticker_input", on_change=update_other_inputs).strip().upper()
 
     with st.spinner(f"運算 {market_ticker} 總體指標中..."):
         market_trend = get_market_trend(market_ticker, tf_interval, tf_period)
@@ -459,9 +498,11 @@ with tab_dashboard:
     st.subheader("🔍 臨時標的快速分析")
     col_t1, col_t2, col_t3 = st.columns([2, 2, 2])
     with col_t1:
+        # 綁定 key 與 on_change 觸發存檔
         st.text_input("輸入代碼 (例：2317.TW)", key="search_ticker", on_change=update_selected_from_search)
     with col_t2:
-        st.text_input("輸入名稱 (選填，例：鴻海)", key="search_name")
+        # 綁定 key 與 on_change 觸發存檔
+        st.text_input("輸入名稱 (選填，例：鴻海)", key="search_name", on_change=update_other_inputs)
 
     temp_ticker = st.session_state.search_ticker.strip().upper()
     temp_name = st.session_state.search_name.strip()
@@ -473,7 +514,14 @@ with tab_dashboard:
             temp_df = analyze_signals(tf_interval, tf_period, ma_s_lbl, ma_l_lbl, temp_dict)
             
         if not temp_df.empty and "⚠️ 無資料" not in temp_df.iloc[0]['收盤價(漲跌)']:
-            st.dataframe(style_dataframe(temp_df), use_container_width=True)
+            # ⭐️ 套用 LinkColumn 使網址變成可點擊的按鈕
+            st.dataframe(
+                style_dataframe(temp_df), 
+                use_container_width=True,
+                column_config={
+                    "Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")
+                }
+            )
             with col_t3:
                 st.write("") 
                 st.write("")
@@ -510,11 +558,15 @@ with tab_dashboard:
         if filtered_df.empty: 
             st.info("目前無符合篩選條件的標的。")
         else: 
+            # ⭐️ 套用 LinkColumn
             display_event = st.dataframe(
                 style_dataframe(filtered_df), 
                 use_container_width=True,
                 on_select="rerun",          
-                selection_mode="single-row" 
+                selection_mode="single-row",
+                column_config={
+                    "Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")
+                }
             )
             if display_event.selection.rows:
                 selected_row_idx = display_event.selection.rows[0]
@@ -577,11 +629,9 @@ with tab_dashboard:
                 fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['MA10'], line=dict(color='blue', width=1.5), name=f'{ma_l_lbl} MA'), row=1, col=1)
                 fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['MA20'], line=dict(color='gray', dash='dot', width=1.5), name='20MA (月線)'), row=1, col=1)
                 
-                # 繪製 SPC 管制區間 (Bollinger Bands 上下軌)
                 fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['UCL'], line=dict(color='rgba(150, 150, 150, 0.3)', width=1, dash='dash'), name='UCL (上軌)'), row=1, col=1)
                 fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['LCL'], line=dict(color='rgba(150, 150, 150, 0.3)', width=1, dash='dash'), fill='tonexty', fillcolor='rgba(150, 150, 150, 0.1)', name='LCL (下軌)'), row=1, col=1)
 
-                # 自動計算並繪製近期最高價(壓力)與最低價(支撐)水平線
                 lookback = 60 if tf_interval == "1d" else 26
                 if len(chart_df) >= lookback:
                     recent_high = chart_df['High'].tail(lookback).max()
