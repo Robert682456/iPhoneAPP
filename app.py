@@ -180,10 +180,13 @@ with tab_dashboard:
                 macd_text = "MACD>0" if curr_hist > 0 else "MACD<0"
                 ma_text = f"{ma_s_label}>{ma_l_label}" if curr_ma5 > curr_ma10 else f"{ma_s_label}<{ma_l_label}"
                 
-                # ⭐️ 長線保護短線：若當前看日線，則偷偷去抓週線資料判斷長線趨勢
+                # ⭐️ 長線保護短線 / 短線找買點：雙向跨週期自動偵測
                 is_weekly_bullish = True
                 weekly_status = ""
+                daily_status = ""
+                
                 if interval == "1d":
+                    # 看日線時：檢查週線大趨勢
                     df_w = yf.download(ticker, period="2y", interval="1wk", progress=False)
                     if not df_w.empty and len(df_w) >= 35:
                         close_w = df_w['Close'][ticker] if isinstance(df_w.columns, pd.MultiIndex) else df_w['Close']
@@ -193,14 +196,40 @@ with tab_dashboard:
                         ema26_w = close_w.ewm(span=26, adjust=False).mean()
                         hist_w = (ema12_w - ema26_w) - (ema12_w - ema26_w).ewm(span=9, adjust=False).mean()
                         
-                        # 週線多頭定義：MACD>0 且 5W>10W
                         if hist_w.iloc[-1] > 0 and ma5_w.iloc[-1] > ma10_w.iloc[-1]:
                             is_weekly_bullish = True
                             weekly_status = "週線長多"
                         else:
                             is_weekly_bullish = False
                             weekly_status = "週線偏空"
-                
+                            
+                elif interval == "1wk":
+                    # ⭐️ 看週線時：偷看日線找進場點
+                    df_d = yf.download(ticker, period="1y", interval="1d", progress=False)
+                    if not df_d.empty and len(df_d) >= 35:
+                        close_d = df_d['Close'][ticker] if isinstance(df_d.columns, pd.MultiIndex) else df_d['Close']
+                        vol_d = df_d['Volume'][ticker] if isinstance(df_d.columns, pd.MultiIndex) else df_d['Volume']
+                        close_d, vol_d = close_d.dropna(), vol_d.dropna()
+                        
+                        ma5_d, ma10_d = close_d.rolling(5).mean(), close_d.rolling(10).mean()
+                        vol_ma5_d = vol_d.rolling(5).mean()
+                        ema12_d = close_d.ewm(span=12, adjust=False).mean()
+                        ema26_d = close_d.ewm(span=26, adjust=False).mean()
+                        hist_d = (ema12_d - ema26_d) - (ema12_d - ema26_d).ewm(span=9, adjust=False).mean()
+                        
+                        curr_hist_d = hist_d.iloc[-1]
+                        curr_ma5_d, curr_ma10_d = ma5_d.iloc[-1], ma10_d.iloc[-1]
+                        
+                        if curr_hist_d > 0 and curr_ma5_d > curr_ma10_d:
+                            if vol_d.iloc[-1] > vol_ma5_d.iloc[-1]:
+                                daily_status = "🟢日線帶量買入"
+                            else:
+                                daily_status = "🟡日線量縮觀察"
+                        elif curr_hist_d <= 0 and curr_ma5_d <= curr_ma10_d:
+                            daily_status = "🔴日線雙空賣出"
+                        else:
+                            daily_status = "🟡日線方向分歧"
+
                 # 依據雙週期邏輯給出最終建議
                 if target_position == 100:
                     if vol_condition:
@@ -220,6 +249,10 @@ with tab_dashboard:
                 else:
                     rec_text = "🟡 觀察"
                     detail_reason = f"【方向分歧】{macd_text} 但 {ma_text}，指標未同步"
+
+                # ⭐️ 如果正在看週線，把日線的買賣狀態補在最後面
+                if interval == "1wk" and daily_status:
+                    detail_reason += f" 👉 找買點：{daily_status}"
 
                 results.append({
                     "代碼": ticker, 
