@@ -3,8 +3,12 @@ import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+from streamlit_autorefresh import st_autorefresh  # ⭐️ 新增自動重整套件
 
 st.set_page_config(page_title="雙指標波段系統", page_icon="📈", layout="wide")
+
+# ⭐️ 自動重整機制：每 5 分鐘 (300,000 毫秒) 自動重新載入網頁
+st_autorefresh(interval=5 * 60 * 1000, key="auto_refresh")
 
 # ⭐️ 初始化 Session State，記憶點擊的標的與自選股清單
 if 'selected_ticker' not in st.session_state:
@@ -54,11 +58,11 @@ hide_st_style = """
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
-# ⭐️ 建立手機友善的頂部分頁 (Tabs) 代替原本的側邊欄
+# ⭐️ 建立手機友善的頂部分頁 (Tabs)
 tab_dashboard, tab_settings = st.tabs(["📊 看盤儀表板", "⚙️ 自選股編輯"])
 
 # ==========================================
-# 分頁 2：自選股編輯頁面 (獨立管理，手機易用)
+# 分頁 2：自選股編輯頁面
 # ==========================================
 with tab_settings:
     st.subheader("⚙️ 編輯自選股清單")
@@ -98,7 +102,7 @@ with tab_dashboard:
         ma_l_lbl = "10D"
 
     # --- 大盤(0050) 多空環境燈號分析 ---
-    @st.cache_data(ttl=3600)
+    @st.cache_data(ttl=300) # ⭐️ 快取改為 5 分鐘
     def get_market_trend(interval, period):
         try:
             df = yf.download("0050.TW", period=period, interval=interval, progress=False)
@@ -125,8 +129,8 @@ with tab_dashboard:
         except Exception:
             return None
 
-    # 1. 運算所有自選股最新訊號 (加入詳細原因)
-    @st.cache_data(ttl=3600)
+    # 1. 運算所有自選股最新訊號
+    @st.cache_data(ttl=300) # ⭐️ 快取改為 5 分鐘
     def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
         results = []
         for ticker, name in watchlist.items():
@@ -160,7 +164,6 @@ with tab_dashboard:
                 elif change_pct < 0: price_display = f"🔻 {curr_close:.2f} ({change_pct:.2f}%)"
                 else: price_display = f"➖ {curr_close:.2f} (0.00%)"
                 
-                # 判定基礎動態
                 actions = []
                 if interval == "1d" and prev_close <= prev_ma20 and curr_close > curr_ma20:
                     actions.append("日線突破20MA")
@@ -175,7 +178,6 @@ with tab_dashboard:
                     
                 target_position = (50 if curr_hist > 0 else 0) + (50 if curr_ma5 > curr_ma10 else 0)
                 
-                # ⭐️ 核心優化：產生詳細的判定原因
                 macd_text = "MACD>0" if curr_hist > 0 else "MACD<0"
                 ma_text = f"{ma_s_label}>{ma_l_label}" if curr_ma5 > curr_ma10 else f"{ma_s_label}<{ma_l_label}"
                 
@@ -199,7 +201,7 @@ with tab_dashboard:
                     "收盤價(漲跌)": price_display,
                     "建議": rec_text,
                     "最新動態": " / ".join(actions) if actions else "-",
-                    "詳細判定原因": detail_reason # ⭐️ 新增詳細原因欄位
+                    "詳細判定原因": detail_reason
                 })
             except Exception: continue
             
@@ -215,7 +217,7 @@ with tab_dashboard:
         return df_results
 
     # 策略歷史回測引擎
-    @st.cache_data(ttl=3600)
+    @st.cache_data(ttl=86400) # 回測資料不會頻繁變動，維持長快取
     def calculate_win_rate(ticker, name, interval):
         try:
             df = yf.download(ticker, period="1y", interval=interval, progress=False)
@@ -277,7 +279,7 @@ with tab_dashboard:
         else: return df.style.applymap(color_trend, subset=['收盤價(漲跌)'])
 
     # 抓取單一股票完整數據畫圖用
-    @st.cache_data(ttl=3600)
+    @st.cache_data(ttl=300) # ⭐️ 快取改為 5 分鐘
     def get_chart_data(ticker, interval, period):
         df = yf.download(ticker, period=period, interval=interval, progress=False)
         if df.empty: return None
@@ -299,7 +301,7 @@ with tab_dashboard:
         return df
 
     # --- 儀表板 UI 渲染區塊 ---
-    if st.button("🔄 刷新最新數據"):
+    if st.button("🔄 手動強制刷新 (重置快取)"):
         st.cache_data.clear()
 
     with st.spinner("運算技術指標與量能中..."):
@@ -327,7 +329,6 @@ with tab_dashboard:
                 display_df = df_signals
 
             st.subheader("📌 重點動態追蹤 (強勢買入 / 弱勢賣出)")
-            # 濾出有明確買賣建議，或是剛發生交叉動態的標的
             action_df = display_df[
                 (display_df['建議'].str.contains("買入|賣出", na=False)) | 
                 (display_df['最新動態'] != "-")
@@ -403,16 +404,13 @@ with tab_dashboard:
                                              low=chart_df['Low'], close=chart_df['Close'], 
                                              name='K線', increasing_line_color='#ef5350', decreasing_line_color='#26a69a'), row=1, col=1)
                 
-                # 均線顏色
                 fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['MA5'], line=dict(color='orange', width=1.5), name=f'{ma_s_lbl} MA'), row=1, col=1)
                 fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['MA10'], line=dict(color='blue', width=1.5), name=f'{ma_l_lbl} MA'), row=1, col=1)
                 fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['MA20'], line=dict(color='gray', dash='dot', width=1.5), name='20MA (月線)'), row=1, col=1)
 
-                # 成交量
                 fig.add_trace(go.Bar(x=chart_df.index, y=chart_df['Volume'], marker_color=chart_df['Vol_Color'], name='成交量'), row=2, col=1)
                 fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['Vol_MA5'], line=dict(color='orange', width=1), name='5均量'), row=2, col=1)
 
-                # MACD柱與快慢線 (橘色與藍色)
                 fig.add_trace(go.Bar(x=chart_df.index, y=chart_df['MACD_Hist'], marker_color=chart_df['MACD_Color'], name='MACD柱'), row=3, col=1)
                 fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['DIF'], line=dict(color='orange', width=1.5), name='DIF'), row=3, col=1)
                 fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['DEA'], line=dict(color='blue', width=1.5), name='DEA(MACD)'), row=3, col=1)
