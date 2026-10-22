@@ -248,8 +248,8 @@ with tab_dashboard:
                     rec_text = "🟡 觀察"
                     detail_reason = f"【方向分歧】{macd_text} 但 {ma_text}，指標未同步"
 
-                # ⭐️ 優化：正在看週線時，根據日線狀態動態決定前綴文字
-                if interval == "1wk" and daily_status:
+                # ⭐️ 優化：只在週線有明確趨勢 (買入或賣出) 時，才附加日線動態
+                if interval == "1wk" and daily_status and "觀察" not in rec_text:
                     if "買入" in daily_status:
                         detail_reason += f" 👉 找買點：{daily_status}"
                     elif "賣出" in daily_status:
