@@ -3,14 +3,14 @@ import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from streamlit_autorefresh import st_autorefresh  # ⭐️ 新增自動重整套件
+from streamlit_autorefresh import st_autorefresh
 
 st.set_page_config(page_title="雙指標波段系統", page_icon="📈", layout="wide")
 
-# ⭐️ 自動重整機制：每 5 分鐘 (300,000 毫秒) 自動重新載入網頁
+# 自動重整機制：每 5 分鐘 (300,000 毫秒) 自動重新載入網頁
 st_autorefresh(interval=5 * 60 * 1000, key="auto_refresh")
 
-# ⭐️ 初始化 Session State，記憶點擊的標的與自選股清單
+# ⭐️ 初始化 Session State
 if 'selected_ticker' not in st.session_state:
     st.session_state.selected_ticker = None
 
@@ -58,7 +58,7 @@ hide_st_style = """
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
-# ⭐️ 建立手機友善的頂部分頁 (Tabs)
+# 建立手機友善的頂部分頁 (Tabs)
 tab_dashboard, tab_settings = st.tabs(["📊 看盤儀表板", "⚙️ 自選股編輯"])
 
 # ==========================================
@@ -102,7 +102,7 @@ with tab_dashboard:
         ma_l_lbl = "10D"
 
     # --- 大盤(0050) 多空環境燈號分析 ---
-    @st.cache_data(ttl=300) # ⭐️ 快取改為 5 分鐘
+    @st.cache_data(ttl=300)
     def get_market_trend(interval, period):
         try:
             df = yf.download("0050.TW", period=period, interval=interval, progress=False)
@@ -130,7 +130,7 @@ with tab_dashboard:
             return None
 
     # 1. 運算所有自選股最新訊號
-    @st.cache_data(ttl=300) # ⭐️ 快取改為 5 分鐘
+    @st.cache_data(ttl=300)
     def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
         results = []
         for ticker, name in watchlist.items():
@@ -177,14 +177,40 @@ with tab_dashboard:
                     actions.append("MA剛死叉")
                     
                 target_position = (50 if curr_hist > 0 else 0) + (50 if curr_ma5 > curr_ma10 else 0)
-                
                 macd_text = "MACD>0" if curr_hist > 0 else "MACD<0"
                 ma_text = f"{ma_s_label}>{ma_l_label}" if curr_ma5 > curr_ma10 else f"{ma_s_label}<{ma_l_label}"
                 
+                # ⭐️ 長線保護短線：若當前看日線，則偷偷去抓週線資料判斷長線趨勢
+                is_weekly_bullish = True
+                weekly_status = ""
+                if interval == "1d":
+                    df_w = yf.download(ticker, period="2y", interval="1wk", progress=False)
+                    if not df_w.empty and len(df_w) >= 35:
+                        close_w = df_w['Close'][ticker] if isinstance(df_w.columns, pd.MultiIndex) else df_w['Close']
+                        close_w = close_w.dropna()
+                        ma5_w, ma10_w = close_w.rolling(5).mean(), close_w.rolling(10).mean()
+                        ema12_w = close_w.ewm(span=12, adjust=False).mean()
+                        ema26_w = close_w.ewm(span=26, adjust=False).mean()
+                        hist_w = (ema12_w - ema26_w) - (ema12_w - ema26_w).ewm(span=9, adjust=False).mean()
+                        
+                        # 週線多頭定義：MACD>0 且 5W>10W
+                        if hist_w.iloc[-1] > 0 and ma5_w.iloc[-1] > ma10_w.iloc[-1]:
+                            is_weekly_bullish = True
+                            weekly_status = "週線長多"
+                        else:
+                            is_weekly_bullish = False
+                            weekly_status = "週線偏空"
+                
+                # 依據雙週期邏輯給出最終建議
                 if target_position == 100:
                     if vol_condition:
-                        rec_text = "🟢 買入"
-                        detail_reason = f"【雙多頭+帶量】{macd_text} 且 {ma_text}，量>{ma_s_label}均量"
+                        if interval == "1d" and not is_weekly_bullish:
+                            rec_text = "🟡 觀察"
+                            detail_reason = f"【短多長空】日線翻多帶量，但{weekly_status}，視為反彈暫不進場"
+                        else:
+                            rec_text = "🟢 買入"
+                            resonance_text = " (長短線共振)" if interval == "1d" else ""
+                            detail_reason = f"【雙多頭+帶量】{macd_text} 且 {ma_text}，量>{ma_s_label}均量{resonance_text}"
                     else:
                         rec_text = "🟡 觀察"
                         detail_reason = f"【量能不足】{macd_text} 且 {ma_text}，但量縮觀望"
@@ -217,7 +243,7 @@ with tab_dashboard:
         return df_results
 
     # 策略歷史回測引擎
-    @st.cache_data(ttl=86400) # 回測資料不會頻繁變動，維持長快取
+    @st.cache_data(ttl=86400)
     def calculate_win_rate(ticker, name, interval):
         try:
             df = yf.download(ticker, period="1y", interval=interval, progress=False)
@@ -279,7 +305,7 @@ with tab_dashboard:
         else: return df.style.applymap(color_trend, subset=['收盤價(漲跌)'])
 
     # 抓取單一股票完整數據畫圖用
-    @st.cache_data(ttl=300) # ⭐️ 快取改為 5 分鐘
+    @st.cache_data(ttl=300)
     def get_chart_data(ticker, interval, period):
         df = yf.download(ticker, period=period, interval=interval, progress=False)
         if df.empty: return None
