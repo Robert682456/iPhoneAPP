@@ -67,6 +67,7 @@ tab_dashboard, tab_settings = st.tabs(["📊 看盤儀表板", "⚙️ 自選股
 with tab_settings:
     st.subheader("⚙️ 編輯自選股清單")
     st.markdown("請依照 `代碼,名稱` 的格式輸入，每行一檔標的。修改後會自動儲存並套用至儀表板。")
+    st.markdown("💡 **提示：** 港股代碼若無法抓取，請嘗試去掉前面的 0（例如：將 `02342.HK` 改為 `2342.HK`）。")
     user_input = st.text_area("📝 編輯清單：", st.session_state.watchlist_text, height=500)
     st.session_state.watchlist_text = user_input
     
@@ -136,7 +137,13 @@ with tab_dashboard:
         for ticker, name in watchlist.items():
             try:
                 df = yf.download(ticker, period=period, interval=interval, progress=False)
-                if df.empty or len(df) < 35: continue
+                if df.empty or len(df) < 35:
+                    results.append({
+                        "代碼": ticker, "名稱": name, "收盤價(漲跌)": "⚠️ 無資料",
+                        "建議": "⚪ 未知", "最新動態": "-",
+                        "詳細判定原因": "無足夠 K 線資料，請檢查代碼格式 (如港股請去 0)"
+                    })
+                    continue
                 
                 close = df['Close'][ticker] if isinstance(df.columns, pd.MultiIndex) else df['Close']
                 volume = df['Volume'][ticker] if isinstance(df.columns, pd.MultiIndex) else df['Volume']
@@ -180,7 +187,6 @@ with tab_dashboard:
                 macd_text = "MACD>0" if curr_hist > 0 else "MACD<0"
                 ma_text = f"{ma_s_label}>{ma_l_label}" if curr_ma5 > curr_ma10 else f"{ma_s_label}<{ma_l_label}"
                 
-                # 長線保護短線 / 短線找買點：雙向跨週期自動偵測
                 is_weekly_bullish = True
                 weekly_status = ""
                 daily_status = ""
@@ -248,8 +254,8 @@ with tab_dashboard:
                     rec_text = "🟡 觀察"
                     detail_reason = f"【方向分歧】{macd_text} 但 {ma_text}，指標未同步"
 
-                # ⭐️ 優化：只在週線有明確趨勢 (買入或賣出) 時，才附加日線動態
-                if interval == "1wk" and daily_status and "觀察" not in rec_text:
+                # ⭐️ 恢復：無論週線是買、賣或觀察，皆同步顯示日線短線動態
+                if interval == "1wk" and daily_status:
                     if "買入" in daily_status:
                         detail_reason += f" 👉 找買點：{daily_status}"
                     elif "賣出" in daily_status:
@@ -265,14 +271,21 @@ with tab_dashboard:
                     "最新動態": " / ".join(actions) if actions else "-",
                     "詳細判定原因": detail_reason
                 })
-            except Exception: continue
+            except Exception: 
+                results.append({
+                    "代碼": ticker, "名稱": name, "收盤價(漲跌)": "⚠️ 錯誤",
+                    "建議": "⚪ 未知", "最新動態": "-",
+                    "詳細判定原因": "抓取過程發生異常，請稍後刷新"
+                })
+                continue
             
         df_results = pd.DataFrame(results)
         if not df_results.empty:
             def get_sort_rank(row):
                 if "🟢 買入" in row['建議']: return 1
-                elif "🟡 觀察" in row['建議']: return 2
-                else: return 3
+                elif "🔴 賣出" in row['建議']: return 2
+                elif "🟡 觀察" in row['建議']: return 3
+                else: return 4
             df_results['SortRank'] = df_results.apply(get_sort_rank, axis=1)
             df_results = df_results.sort_values(by=['SortRank', '代碼']).drop(columns=['SortRank']).reset_index(drop=True)
             
@@ -336,6 +349,7 @@ with tab_dashboard:
             if isinstance(val, str):
                 if '🔺' in val: return 'color: #ff4b4b; font-weight: bold;'
                 elif '🔻' in val: return 'color: #00c853; font-weight: bold;'
+                elif '⚠️' in val: return 'color: #f57c00; font-weight: bold;'
             return ''
         if hasattr(df.style, "map"): return df.style.map(color_trend, subset=['收盤價(漲跌)'])
         else: return df.style.applymap(color_trend, subset=['收盤價(漲跌)'])
@@ -379,35 +393,68 @@ with tab_dashboard:
                 ''', unsafe_allow_html=True
             )
 
-        df_signals = analyze_signals(tf_interval, tf_period, ma_s_lbl, ma_l_lbl, WATCHLIST)
-        if not df_signals.empty:
-            search_query = st.text_input("🔍 快速搜尋標的 (輸入代碼或名稱)：", "")
-            if search_query:
-                display_df = df_signals[
-                    df_signals['代碼'].str.contains(search_query, case=False, na=False) | 
-                    df_signals['名稱'].str.contains(search_query, case=False, na=False)
-                ].reset_index(drop=True)
-            else:
-                display_df = df_signals
+        # ⭐️ 新增：動態搜尋框與一鍵加入自選股
+        st.divider()
+        st.subheader("🔍 臨時標的快速分析")
+        col_t1, col_t2, col_t3 = st.columns([2, 2, 2])
+        with col_t1:
+            temp_ticker = st.text_input("輸入代碼 (例：2317.TW)", "").strip().upper()
+        with col_t2:
+            temp_name = st.text_input("輸入名稱 (選填，例：鴻海)", "").strip()
 
-            st.subheader("📌 重點動態追蹤 (強勢買入 / 弱勢賣出)")
-            action_df = display_df[
-                (display_df['建議'].str.contains("買入|賣出", na=False)) | 
-                (display_df['最新動態'] != "-")
-            ].reset_index(drop=True)
+        if temp_ticker:
+            disp_name = temp_name if temp_name else temp_ticker
+            temp_dict = {temp_ticker: disp_name}
+            with st.spinner(f"正在分析 {temp_ticker}..."):
+                temp_df = analyze_signals(tf_interval, tf_period, ma_s_lbl, ma_l_lbl, temp_dict)
+                
+            if not temp_df.empty and "⚠️ 無資料" not in temp_df.iloc[0]['收盤價(漲跌)']:
+                st.dataframe(style_dataframe(temp_df), use_container_width=True)
+                with col_t3:
+                    st.write("") 
+                    st.write("")
+                    if st.button("➕ 加入自選股"):
+                        if temp_ticker not in st.session_state.watchlist_text:
+                            st.session_state.watchlist_text += f"\n{temp_ticker},{disp_name}"
+                            st.rerun()
+                        else:
+                            st.warning("此標的已在您的自選股清單中。")
+            else:
+                st.error("無法取得該代碼資料，請確認代碼是否正確（美股 AAPL，台股 2317.TW，港股去零 700.HK）。")
+        st.divider()
+
+        # 取得包含所有自選股的完整清單
+        display_df = analyze_signals(tf_interval, tf_period, ma_s_lbl, ma_l_lbl, WATCHLIST)
+        
+        if not display_df.empty:
+            st.subheader(f"📊 自選股狀態總覽 ({timeframe_option})")
             
-            if action_df.empty: 
-                st.info("目前無符合進出場條件或交叉訊號的標的。")
+            filter_opt = st.radio(
+                "🔍 快速篩選：", 
+                ["👀 顯示全部", "🟢 只看買入", "🔴 只看賣出", "⚡ 剛發生交叉"], 
+                horizontal=True
+            )
+            
+            filtered_df = display_df.copy()
+            if filter_opt == "🟢 只看買入":
+                filtered_df = filtered_df[filtered_df['建議'].str.contains("買入", na=False)]
+            elif filter_opt == "🔴 只看賣出":
+                filtered_df = filtered_df[filtered_df['建議'].str.contains("賣出", na=False)]
+            elif filter_opt == "⚡ 剛發生交叉":
+                filtered_df = filtered_df[filtered_df['最新動態'] != "-"]
+
+            if filtered_df.empty: 
+                st.info("目前無符合篩選條件的標的。")
             else: 
-                action_event = st.dataframe(
-                    style_dataframe(action_df), 
+                display_event = st.dataframe(
+                    style_dataframe(filtered_df), 
                     use_container_width=True,
                     on_select="rerun",          
                     selection_mode="single-row" 
                 )
-                if action_event.selection.rows:
-                    selected_row_idx = action_event.selection.rows[0]
-                    st.session_state.selected_ticker = action_df.iloc[selected_row_idx]['代碼']
+                if display_event.selection.rows:
+                    selected_row_idx = display_event.selection.rows[0]
+                    st.session_state.selected_ticker = filtered_df.iloc[selected_row_idx]['代碼']
             
             buy_df = display_df[display_df['建議'].str.contains("買入", na=False)]
             with st.expander("📊 計算『買入』標的歷史勝率 (近一年回測)"):
@@ -426,17 +473,6 @@ with tab_dashboard:
                                 st.caption("※ 回測邏輯：過去一年內，當均線與MACD雙多頭且帶量時買進；雙空頭時賣出。")
                             else:
                                 st.error("無法取得回測資料。")
-                
-            st.subheader(f"📊 全部自選股狀態 ({timeframe_option})")
-            display_event = st.dataframe(
-                style_dataframe(display_df), 
-                use_container_width=True,
-                on_select="rerun",
-                selection_mode="single-row"
-            )
-            if display_event.selection.rows:
-                selected_row_idx = display_event.selection.rows[0]
-                st.session_state.selected_ticker = display_df.iloc[selected_row_idx]['代碼']
 
     # --- 互動 K 線圖區塊 ---
     st.divider()
