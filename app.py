@@ -138,6 +138,11 @@ with tab_rules:
     2. **逆勢超跌買點 (爆量 + RSI 雙濾網)**：
        - 當股價崩跌至 **LCL 管制下限 (20MA - 2σ)** 之下，且當日 **成交量大於 5日均量的 2 倍**，同時 **RSI(14) 低於 30 (極度超賣)** 時，代表出現恐慌殺跌與主力換手承接，此時系統會強制發出「🟢 逢低買入」訊號。
 
+    ### 💡 醞釀反轉 (提前預警)
+    當股價處於空頭，但出現以下特徵時，系統會提示「醞釀反轉」，建議列入觀察清單：
+    - MACD 水下柱狀圖收斂 (綠柱縮減) 且股價站上 5MA。
+    - RSI(14) 降至 35 以下，逼近極度超賣區。
+
     ---
 
     ### 🔴 賣出與防守標準 (滿足其一即應警戒)
@@ -240,6 +245,7 @@ with tab_dashboard:
                 curr_ma5, curr_ma10 = ma5.iloc[-1], ma10.iloc[-1]
                 curr_ma20, prev_ma20 = ma20.iloc[-1], ma20.iloc[-2]
                 curr_hist = hist.iloc[-1]
+                prev_hist = hist.iloc[-2]
                 curr_vol, curr_vol_ma5 = volume.iloc[-1], vol_ma5.iloc[-1]
                 
                 std20 = close.rolling(20).std()
@@ -255,15 +261,14 @@ with tab_dashboard:
                 elif change_pct < 0: price_display = f"🔻 {curr_close:.2f} ({change_pct:.2f}%)"
                 else: price_display = f"➖ {curr_close:.2f} (0.00%)"
                 
-                # ⭐️ 更新：取得最後一天 K 線的日期，加入到「最新動態」中
                 last_date_str = close.index[-1].strftime('%m/%d')
                 
                 actions = []
                 if interval == "1d" and prev_close <= prev_ma20 and curr_close > curr_ma20:
                     actions.append(f"日線突破20MA ({last_date_str})")
-                if hist.iloc[-2] <= 0 and curr_hist > 0:
+                if prev_hist <= 0 and curr_hist > 0:
                     actions.append(f"MACD剛金叉 ({last_date_str})")
-                elif hist.iloc[-2] >= 0 and curr_hist < 0:
+                elif prev_hist >= 0 and curr_hist < 0:
                     actions.append(f"MACD剛死叉 ({last_date_str})")
                 if ma5.iloc[-2] <= ma10.iloc[-2] and curr_ma5 > curr_ma10:
                     actions.append(f"MA剛金叉 ({last_date_str})")
@@ -272,7 +277,6 @@ with tab_dashboard:
                     
                 target_position = (50 if curr_hist > 0 else 0) + (50 if curr_ma5 > curr_ma10 else 0)
                 
-                # ⭐️ 更新：計算並追溯前一次發生交叉的歷史日期
                 macd_sign = (hist > 0).astype(int)
                 macd_crosses = macd_sign.diff()[macd_sign.diff() != 0].dropna()
                 macd_date = macd_crosses.index[-1].strftime('%m/%d') if not macd_crosses.empty else "-"
@@ -281,9 +285,8 @@ with tab_dashboard:
                 ma_crosses = ma_sign.diff()[ma_sign.diff() != 0].dropna()
                 ma_date = ma_crosses.index[-1].strftime('%m/%d') if not ma_crosses.empty else "-"
 
-                # 組合出包含歷史日期的說明文字
-                macd_text = f"MACD>0 (自{macd_date})" if curr_hist > 0 else f"MACD<0 (自{macd_date})"
-                ma_text = f"{ma_s_label}>{ma_l_label} (自{ma_date})" if curr_ma5 > curr_ma10 else f"{ma_s_label}<{ma_l_label} (自{ma_date})"
+                macd_text = f"MACD>0(自{macd_date})" if curr_hist > 0 else f"MACD<0(自{macd_date})"
+                ma_text = f"{ma_s_label}>{ma_l_label}(自{ma_date})" if curr_ma5 > curr_ma10 else f"{ma_s_label}<{ma_l_label}(自{ma_date})"
                 
                 is_weekly_bullish = True
                 weekly_status = ""
@@ -332,7 +335,7 @@ with tab_dashboard:
                         else:
                             daily_status = "🟡日線方向分歧"
 
-                # 順勢邏輯判定
+                # 順勢邏輯判定與預警
                 if target_position == 100:
                     if vol_condition:
                         if interval == "1d" and not is_weekly_bullish:
@@ -346,13 +349,21 @@ with tab_dashboard:
                         rec_text = "🟡 觀察"
                         detail_reason = f"【量能不足】{macd_text} 且 {ma_text}，但量縮觀望"
                 elif target_position == 0:
-                    rec_text = "🔴 賣出"
-                    detail_reason = f"【雙空頭】{macd_text} 且 {ma_text}，建議出場"
+                    # 💡 新增：提早抓出「醞釀反轉」的股票
+                    if curr_hist < 0 and curr_hist > prev_hist and curr_close > curr_ma5:
+                        rec_text = "💡 醞釀反轉"
+                        detail_reason = f"【動能收斂】MACD水下綠柱縮減，且股價剛站上5MA，殺跌動能減弱。"
+                    elif curr_rsi <= 35:
+                        rec_text = "💡 醞釀反轉"
+                        detail_reason = f"【逼近超賣】RSI降至低檔 ({curr_rsi:.1f})，隨時可能觸發技術性反彈。"
+                    else:
+                        rec_text = "🔴 賣出"
+                        detail_reason = f"【雙空頭】{macd_text} 且 {ma_text}，建議出場"
                 else:
                     rec_text = "🟡 觀察"
                     detail_reason = f"【方向分歧】{macd_text} 但 {ma_text}，指標未同步"
 
-                if interval == "1wk" and daily_status and "觀察" not in rec_text:
+                if interval == "1wk" and daily_status and "觀察" not in rec_text and "反轉" not in rec_text:
                     if "買入" in daily_status:
                         detail_reason += f" 👉 找買點：{daily_status}"
                     elif "賣出" in daily_status:
@@ -394,9 +405,10 @@ with tab_dashboard:
         if not df_results.empty:
             def get_sort_rank(row):
                 if "買入" in row['建議']: return 1  
-                elif "🔴 賣出" in row['建議']: return 2
-                elif "🟡 觀察" in row['建議']: return 3
-                else: return 4
+                elif "醞釀反轉" in row['建議']: return 2
+                elif "觀察" in row['建議']: return 3
+                elif "🔴 賣出" in row['建議']: return 4
+                else: return 5
             df_results['SortRank'] = df_results.apply(get_sort_rank, axis=1)
             df_results = df_results.sort_values(by=['SortRank', '代碼']).drop(columns=['SortRank']).reset_index(drop=True)
             
@@ -561,9 +573,10 @@ with tab_dashboard:
     if not display_df.empty:
         st.subheader(f"📊 自選股狀態總覽 ({timeframe_option})")
         
+        # ⭐️ 新增「💡 醞釀反轉」快速篩選按鈕
         filter_opt = st.radio(
             "🔍 快速篩選：", 
-            ["👀 顯示全部", "🟢 只看買入", "🔴 只看賣出", "⚡ 剛發生交叉"], 
+            ["👀 顯示全部", "🟢 只看買入", "💡 醞釀反轉", "🔴 只看賣出", "⚡ 剛發生交叉"], 
             index=1,
             horizontal=True
         )
@@ -571,6 +584,8 @@ with tab_dashboard:
         filtered_df = display_df.copy()
         if filter_opt == "🟢 只看買入":
             filtered_df = filtered_df[filtered_df['建議'].str.contains("買入", na=False)]
+        elif filter_opt == "💡 醞釀反轉":
+            filtered_df = filtered_df[filtered_df['建議'].str.contains("醞釀反轉", na=False)]
         elif filter_opt == "🔴 只看賣出":
             filtered_df = filtered_df[filtered_df['建議'].str.contains("賣出", na=False)]
         elif filter_opt == "⚡ 剛發生交叉":
