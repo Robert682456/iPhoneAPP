@@ -136,14 +136,19 @@ with tab_rules:
 
     ### 💡 雙向預警雷達 (提早抓轉折)
     - **💡 醞釀向上 (主力打底區)**：MACD 綠柱縮減且股價站上 5MA；或 RSI(14) ≤ 35。強烈建議列入買進觀察清單。
-    - **⚠️ 醞釀向下 (提防見頂)**：MACD 紅柱縮減且股價跌破 5MA；或 RSI(14) ≥ 70。手中有持股者應留意獲利了結時機。
+    - **⚠️ 醞釀向下 (提防見頂)**：(需滿足 DIF 下降前提) MACD 紅柱縮減且股價跌破 5MA；或 RSI(14) ≥ 70。
 
     ---
 
-    ### 🔴 賣出與防守標準
-    1. **動能轉弱 (MACD 死叉)**：日線 MACD < 0。
-    2. **趨勢跌破 (均線死叉)**：日線 5MA < 10MA。
-    3. **極端超漲 (SPC 管制上限)**：股價突破 UCL (20MA+2σ)。
+    ### 🔴 賣出與防守標準 (需先滿足「前提條件」)
+    - **前提條件**：當日 MACD 的 DIF 值 < 前一日 DIF 值 (代表動能確實開始衰退)。
+    
+    只有在上述前提下，若滿足以下任一條件即觸發賣出/警戒：
+    1. **動能轉弱 (MACD 死叉)**：日線 MACD 柱狀圖由紅翻綠 (MACD < 0)。
+    2. **趨勢跌破 (均線死叉)**：日線 5MA 跌破 10MA。
+    3. **極端超漲 (SPC 管制上限)**：股價突破 UCL 管制上限 (20MA + 2σ)。
+    
+    *(註：若 DIF 仍在上升，即使觸及上述條件，系統也會視為「動能延續」暫緩防守)*
     """)
 
 # ==========================================
@@ -154,7 +159,6 @@ with tab_dashboard:
     with col1:
         st.title("📈 雙指標波段系統")
     with col2:
-        # ⭐️ 變更：將預設分析週期改為「日線 (Daily)」(index=1)
         timeframe_option = st.radio(
             "請選擇分析週期：", 
             ["週線 (Weekly)", "日線 (Daily)"], 
@@ -244,6 +248,11 @@ with tab_dashboard:
                 prev_hist = hist.iloc[-2]
                 curr_vol, curr_vol_ma5 = volume.iloc[-1], vol_ma5.iloc[-1]
                 
+                # ⭐️ 新增：判斷 DIF 是否減少
+                curr_dif = dif.iloc[-1]
+                prev_dif = dif.iloc[-2]
+                dif_decreasing = curr_dif < prev_dif
+                
                 std20 = close.rolling(20).std()
                 ucl = ma20 + 2 * std20
                 lcl = ma20 - 2 * std20
@@ -331,7 +340,7 @@ with tab_dashboard:
                         else:
                             daily_status = "🟡日線方向分歧"
 
-                # 順勢基礎判定
+                # ⭐️ 順勢基礎判定 (加入 DIF 下降作為防守前提)
                 if target_position == 100:
                     if vol_condition:
                         if interval == "1d" and not is_weekly_bullish:
@@ -345,20 +354,27 @@ with tab_dashboard:
                         rec_text = "🟡 觀察"
                         detail_reason = f"【量能不足】{macd_text} 且 {ma_text}，量縮觀望"
                 elif target_position == 0:
-                    rec_text = "🔴 賣出"
-                    detail_reason = f"【雙空頭】{macd_text} 且 {ma_text}，建議出場"
+                    if dif_decreasing:
+                        rec_text = "🔴 賣出"
+                        detail_reason = f"【雙空頭】DIF下降且 {macd_text} 且 {ma_text}，建議出場"
+                    else:
+                        rec_text = "🟡 觀察"
+                        detail_reason = f"【防守延遲】{macd_text} 且 {ma_text}，但DIF仍上升，暫緩賣出"
                 else:
                     rec_text = "🟡 觀察"
-                    detail_reason = f"【方向分歧】{macd_text} 但 {ma_text}，指標未同步"
+                    if not dif_decreasing and curr_hist < 0:
+                        detail_reason = f"【方向分歧】指標偏空，但DIF仍上升，暫緩防守"
+                    else:
+                        detail_reason = f"【方向分歧】{macd_text} 但 {ma_text}，指標未同步"
 
                 # 雙向預警雷達 (覆蓋邏輯)
                 if "買入" not in rec_text:
-                    if curr_rsi >= 70:
+                    if dif_decreasing and curr_rsi >= 70:
                         rec_text = "⚠️ 醞釀向下"
-                        detail_reason = f"【逼近超買】RSI達高檔 ({curr_rsi:.1f})，極度貪婪隨時面臨下修。"
-                    elif curr_hist > 0 and curr_hist < prev_hist and curr_close < curr_ma5:
+                        detail_reason = f"【逼近超買】DIF下降且RSI達高檔 ({curr_rsi:.1f})，極度貪婪隨時面臨下修。"
+                    elif dif_decreasing and curr_hist > 0 and curr_hist < prev_hist and curr_close < curr_ma5:
                         rec_text = "⚠️ 醞釀向下"
-                        detail_reason = f"【動能衰退】MACD紅柱縮減且跌破5MA，多方推升無力提防見頂。"
+                        detail_reason = f"【動能衰退】MACD紅柱縮減且DIF下降，多方推升無力提防見頂。"
                     elif curr_rsi <= 35:
                         rec_text = "💡 醞釀向上"
                         detail_reason = f"【逼近超賣】RSI降至低檔 ({curr_rsi:.1f})，隨時可能觸發技術性反彈。"
@@ -385,7 +401,10 @@ with tab_dashboard:
                     else:
                         detail_reason += f" ⚠️ SPC警示：跌破LCL下軌，無爆量承接 (RSI:{curr_rsi:.1f})，提防陰跌探底"
                 elif curr_close >= curr_ucl:
-                    detail_reason += f" ⚠️ SPC警示：突破UCL上軌，極端超漲提防拉回 (RSI:{curr_rsi:.1f})"
+                    if dif_decreasing:
+                        detail_reason += f" ⚠️ SPC警示：突破UCL上軌且DIF下降，極端超漲提防拉回 (RSI:{curr_rsi:.1f})"
+                    else:
+                        detail_reason += f" ⚠️ SPC警示：突破UCL上軌，但DIF仍上升，動能延續中 (RSI:{curr_rsi:.1f})"
 
                 results.append({
                     "代碼": ticker, 
@@ -448,13 +467,15 @@ with tab_dashboard:
                 curr_hist = hist.iloc[i]
                 curr_vol, curr_vol_ma5 = volume.iloc[i], vol_ma5.iloc[i]
                 
+                # 回測時也加入 DIF 減少的賣出前提
+                dif_decreasing = dif.iloc[i] < dif.iloc[i-1]
                 vol_condition = curr_vol > curr_vol_ma5
                 target_position = (50 if curr_hist > 0 else 0) + (50 if curr_ma5 > curr_ma10 else 0)
                 
                 if not holding and target_position == 100 and vol_condition:
                     holding = True
                     buy_price = curr_close
-                elif holding and target_position == 0:
+                elif holding and target_position == 0 and dif_decreasing:
                     holding = False
                     trades += 1
                     if curr_close > buy_price:
@@ -578,7 +599,6 @@ with tab_dashboard:
     if not display_df.empty:
         st.subheader(f"📊 自選股狀態總覽 ({timeframe_option})")
         
-        # ⭐️ 變更：將預設的快速篩選選項改為「💡 醞釀向上」(index=2)
         filter_opt = st.radio(
             "🔍 快速篩選：", 
             ["👀 顯示全部", "🟢 只看買入", "💡 醞釀向上", "⚠️ 醞釀向下", "🔴 只看賣出", "⚡ 剛發生交叉"], 
