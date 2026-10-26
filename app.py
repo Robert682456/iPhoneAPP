@@ -128,15 +128,15 @@ with tab_settings:
 with tab_rules:
     st.header("📖 雙指標波段系統 - 判斷原則")
     st.markdown("""
-    本系統融合了「順勢波段交易」與「逆勢均值回歸(抄底)」兩種邏輯，全面防護您的資金。
+    本系統專注於「順勢波段做多」與「極端超跌抄底」，排除做空邏輯，穩健累積資產。
     
     ### 🟢 買入標準 (滿足其一即為買點)
     1. **順勢共振買點 (長短線雙多)**：週線 MACD>0 且 5W>10W；日線 MACD>0 且 5MA>10MA，當日成交量 > 5日均量。
     2. **逆勢超跌買點 (爆量 + RSI 雙濾網)**：跌破 LCL (20MA-2σ)，成交量大於 5日均量 2 倍，且 RSI(14) < 30。
 
     ### 💡 雙向預警雷達 (提早抓轉折)
-    - **💡 醞釀向上 (提早打底)**：MACD 綠柱縮減且股價站上 5MA；或 RSI(14) ≤ 35。
-    - **⚠️ 醞釀向下 (提防見頂)**：MACD 紅柱縮減且股價跌破 5MA；或 RSI(14) ≥ 70。
+    - **💡 醞釀向上 (主力打底區)**：MACD 綠柱縮減且股價站上 5MA；或 RSI(14) ≤ 35。強烈建議列入買進觀察清單。
+    - **⚠️ 醞釀向下 (提防見頂)**：MACD 紅柱縮減且股價跌破 5MA；或 RSI(14) ≥ 70。手中有持股者應留意獲利了結時機。
 
     ---
 
@@ -154,9 +154,11 @@ with tab_dashboard:
     with col1:
         st.title("📈 雙指標波段系統")
     with col2:
+        # ⭐️ 變更：將預設分析週期改為「日線 (Daily)」(index=1)
         timeframe_option = st.radio(
             "請選擇分析週期：", 
             ["週線 (Weekly)", "日線 (Daily)"], 
+            index=1,
             horizontal=True
         )
 
@@ -349,16 +351,14 @@ with tab_dashboard:
                     rec_text = "🟡 觀察"
                     detail_reason = f"【方向分歧】{macd_text} 但 {ma_text}，指標未同步"
 
-                # ⭐️ 雙向預警雷達 (覆蓋邏輯)
+                # 雙向預警雷達 (覆蓋邏輯)
                 if "買入" not in rec_text:
-                    # 醞釀向下 (優先抓出高檔反轉風險)
                     if curr_rsi >= 70:
                         rec_text = "⚠️ 醞釀向下"
                         detail_reason = f"【逼近超買】RSI達高檔 ({curr_rsi:.1f})，極度貪婪隨時面臨下修。"
                     elif curr_hist > 0 and curr_hist < prev_hist and curr_close < curr_ma5:
                         rec_text = "⚠️ 醞釀向下"
                         detail_reason = f"【動能衰退】MACD紅柱縮減且跌破5MA，多方推升無力提防見頂。"
-                    # 醞釀向上
                     elif curr_rsi <= 35:
                         rec_text = "💡 醞釀向上"
                         detail_reason = f"【逼近超賣】RSI降至低檔 ({curr_rsi:.1f})，隨時可能觸發技術性反彈。"
@@ -578,11 +578,11 @@ with tab_dashboard:
     if not display_df.empty:
         st.subheader(f"📊 自選股狀態總覽 ({timeframe_option})")
         
-        # ⭐️ 新增雙向預警的快速篩選器
+        # ⭐️ 變更：將預設的快速篩選選項改為「💡 醞釀向上」(index=2)
         filter_opt = st.radio(
             "🔍 快速篩選：", 
             ["👀 顯示全部", "🟢 只看買入", "💡 醞釀向上", "⚠️ 醞釀向下", "🔴 只看賣出", "⚡ 剛發生交叉"], 
-            index=1,
+            index=2,
             horizontal=True
         )
         
