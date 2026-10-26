@@ -113,7 +113,6 @@ tab_dashboard, tab_rules, tab_settings = st.tabs(["📊 看盤儀表板", "📖 
 with tab_settings:
     st.subheader("⚙️ 編輯自選股清單")
     st.markdown("請依照 `代碼,名稱` 的格式輸入，每行一檔標的。修改後會自動儲存並套用至儀表板。")
-    st.markdown("💡 **提示：** 港股代碼若無法抓取，請嘗試去掉前面的 0（例如：將 `02342.HK` 改為 `2342.HK`）。")
     user_input = st.text_area("📝 編輯清單：", st.session_state.watchlist_text, height=500)
     st.session_state.watchlist_text = user_input
     
@@ -132,23 +131,19 @@ with tab_rules:
     本系統融合了「順勢波段交易」與「逆勢均值回歸(抄底)」兩種邏輯，全面防護您的資金。
     
     ### 🟢 買入標準 (滿足其一即為買點)
-    1. **順勢共振買點 (長短線雙多)**：
-       - **週線保護**：週線 MACD > 0 且 5MA > 10MA。
-       - **日線發動**：日線 MACD > 0 且 5MA > 10MA，並且 **當日成交量 > 5日均量**。
-    2. **逆勢超跌買點 (爆量 + RSI 雙濾網)**：
-       - 當股價崩跌至 **LCL 管制下限 (20MA - 2σ)** 之下，且當日 **成交量大於 5日均量的 2 倍**，同時 **RSI(14) 低於 30 (極度超賣)** 時，代表出現恐慌殺跌與主力換手承接，此時系統會強制發出「🟢 逢低買入」訊號。
+    1. **順勢共振買點 (長短線雙多)**：週線 MACD>0 且 5W>10W；日線 MACD>0 且 5MA>10MA，當日成交量 > 5日均量。
+    2. **逆勢超跌買點 (爆量 + RSI 雙濾網)**：跌破 LCL (20MA-2σ)，成交量大於 5日均量 2 倍，且 RSI(14) < 30。
 
-    ### 💡 醞釀反轉 (提前預警)
-    當股價處於空頭，但出現以下特徵時，系統會提示「醞釀反轉」，建議列入觀察清單：
-    - MACD 水下柱狀圖收斂 (綠柱縮減) 且股價站上 5MA。
-    - RSI(14) 降至 35 以下，逼近極度超賣區。
+    ### 💡 雙向預警雷達 (提早抓轉折)
+    - **💡 醞釀向上 (提早打底)**：MACD 綠柱縮減且股價站上 5MA；或 RSI(14) ≤ 35。
+    - **⚠️ 醞釀向下 (提防見頂)**：MACD 紅柱縮減且股價跌破 5MA；或 RSI(14) ≥ 70。
 
     ---
 
-    ### 🔴 賣出與防守標準 (滿足其一即應警戒)
-    1. **動能轉弱 (MACD 死叉)**：日線 MACD 柱狀圖由紅翻綠 (MACD < 0)。
-    2. **趨勢跌破 (均線死叉)**：日線 5MA 跌破 10MA。
-    3. **極端超漲 (SPC 管制上限)**：股價突破 UCL 管制上限 (20MA + 2σ)，代表短線過熱，面臨拉回壓力。
+    ### 🔴 賣出與防守標準
+    1. **動能轉弱 (MACD 死叉)**：日線 MACD < 0。
+    2. **趨勢跌破 (均線死叉)**：日線 5MA < 10MA。
+    3. **極端超漲 (SPC 管制上限)**：股價突破 UCL (20MA+2σ)。
     """)
 
 # ==========================================
@@ -213,7 +208,7 @@ with tab_dashboard:
                     results.append({
                         "代碼": ticker, "名稱": name, "收盤價(漲跌)": "⚠️ 無資料",
                         "建議": "⚪ 未知", "最新動態": "-",
-                        "詳細判定原因": "無足夠 K 線資料，請檢查代碼格式 (如港股請去 0)",
+                        "詳細判定原因": "無足夠 K 線資料，請檢查代碼格式",
                         "Yahoo股市": f"https://finance.yahoo.com/quote/{ticker}"
                     })
                     continue
@@ -231,7 +226,6 @@ with tab_dashboard:
                 dea = dif.ewm(span=9, adjust=False).mean()
                 hist = dif - dea 
                 
-                # 在引擎中計算 RSI (14週期)
                 delta = close.diff()
                 gain = delta.clip(lower=0)
                 loss = -1 * delta.clip(upper=0)
@@ -335,35 +329,45 @@ with tab_dashboard:
                         else:
                             daily_status = "🟡日線方向分歧"
 
-                # 順勢邏輯判定與預警
+                # 順勢基礎判定
                 if target_position == 100:
                     if vol_condition:
                         if interval == "1d" and not is_weekly_bullish:
                             rec_text = "🟡 觀察"
-                            detail_reason = f"【短多長空】日線翻多帶量，但{weekly_status}，視為反彈暫不進場"
+                            detail_reason = f"【短多長空】日線翻多帶量，但{weekly_status}，反彈暫不進場"
                         else:
                             rec_text = "🟢 買入"
                             resonance_text = " (長短線共振)" if interval == "1d" else ""
                             detail_reason = f"【雙多頭+帶量】{macd_text} 且 {ma_text}，量>{ma_s_label}均量{resonance_text}"
                     else:
                         rec_text = "🟡 觀察"
-                        detail_reason = f"【量能不足】{macd_text} 且 {ma_text}，但量縮觀望"
+                        detail_reason = f"【量能不足】{macd_text} 且 {ma_text}，量縮觀望"
                 elif target_position == 0:
-                    # 💡 新增：提早抓出「醞釀反轉」的股票
-                    if curr_hist < 0 and curr_hist > prev_hist and curr_close > curr_ma5:
-                        rec_text = "💡 醞釀反轉"
-                        detail_reason = f"【動能收斂】MACD水下綠柱縮減，且股價剛站上5MA，殺跌動能減弱。"
-                    elif curr_rsi <= 35:
-                        rec_text = "💡 醞釀反轉"
-                        detail_reason = f"【逼近超賣】RSI降至低檔 ({curr_rsi:.1f})，隨時可能觸發技術性反彈。"
-                    else:
-                        rec_text = "🔴 賣出"
-                        detail_reason = f"【雙空頭】{macd_text} 且 {ma_text}，建議出場"
+                    rec_text = "🔴 賣出"
+                    detail_reason = f"【雙空頭】{macd_text} 且 {ma_text}，建議出場"
                 else:
                     rec_text = "🟡 觀察"
                     detail_reason = f"【方向分歧】{macd_text} 但 {ma_text}，指標未同步"
 
-                if interval == "1wk" and daily_status and "觀察" not in rec_text and "反轉" not in rec_text:
+                # ⭐️ 雙向預警雷達 (覆蓋邏輯)
+                if "買入" not in rec_text:
+                    # 醞釀向下 (優先抓出高檔反轉風險)
+                    if curr_rsi >= 70:
+                        rec_text = "⚠️ 醞釀向下"
+                        detail_reason = f"【逼近超買】RSI達高檔 ({curr_rsi:.1f})，極度貪婪隨時面臨下修。"
+                    elif curr_hist > 0 and curr_hist < prev_hist and curr_close < curr_ma5:
+                        rec_text = "⚠️ 醞釀向下"
+                        detail_reason = f"【動能衰退】MACD紅柱縮減且跌破5MA，多方推升無力提防見頂。"
+                    # 醞釀向上
+                    elif curr_rsi <= 35:
+                        rec_text = "💡 醞釀向上"
+                        detail_reason = f"【逼近超賣】RSI降至低檔 ({curr_rsi:.1f})，隨時可能觸發技術性反彈。"
+                    elif curr_hist < 0 and curr_hist > prev_hist and curr_close > curr_ma5:
+                        rec_text = "💡 醞釀向上"
+                        detail_reason = f"【動能收斂】MACD綠柱縮減且站上5MA，空方力竭準備打底。"
+
+                # 追蹤附帶說明
+                if interval == "1wk" and daily_status and "觀察" not in rec_text and "醞釀" not in rec_text:
                     if "買入" in daily_status:
                         detail_reason += f" 👉 找買點：{daily_status}"
                     elif "賣出" in daily_status:
@@ -371,7 +375,7 @@ with tab_dashboard:
                     else:
                         detail_reason += f" 👉 短線動態：{daily_status}"
 
-                # SPC 爆量止跌 + RSI 雙重防護邏輯
+                # SPC 爆量止跌 + RSI 雙重防護邏輯 (最高優先級)
                 if curr_close <= curr_lcl:
                     if curr_vol > curr_vol_ma5 * 2 and curr_rsi < 30:
                         rec_text = "🟢 逢低買入"
@@ -379,7 +383,7 @@ with tab_dashboard:
                     elif curr_vol > curr_vol_ma5 * 2:
                         detail_reason += f" ⚠️ SPC警示：跌破LCL且爆量，但RSI未達超賣({curr_rsi:.1f})，動能尚未完全竭盡"
                     else:
-                        detail_reason += f" ⚠️ SPC警示：跌破LCL下軌，但無爆量承接 (RSI:{curr_rsi:.1f})，提防陰跌探底"
+                        detail_reason += f" ⚠️ SPC警示：跌破LCL下軌，無爆量承接 (RSI:{curr_rsi:.1f})，提防陰跌探底"
                 elif curr_close >= curr_ucl:
                     detail_reason += f" ⚠️ SPC警示：突破UCL上軌，極端超漲提防拉回 (RSI:{curr_rsi:.1f})"
 
@@ -405,10 +409,11 @@ with tab_dashboard:
         if not df_results.empty:
             def get_sort_rank(row):
                 if "買入" in row['建議']: return 1  
-                elif "醞釀反轉" in row['建議']: return 2
-                elif "觀察" in row['建議']: return 3
+                elif "醞釀向上" in row['建議']: return 2
+                elif "醞釀向下" in row['建議']: return 3
                 elif "🔴 賣出" in row['建議']: return 4
-                else: return 5
+                elif "觀察" in row['建議']: return 5
+                else: return 6
             df_results['SortRank'] = df_results.apply(get_sort_rank, axis=1)
             df_results = df_results.sort_values(by=['SortRank', '代碼']).drop(columns=['SortRank']).reset_index(drop=True)
             
@@ -573,10 +578,10 @@ with tab_dashboard:
     if not display_df.empty:
         st.subheader(f"📊 自選股狀態總覽 ({timeframe_option})")
         
-        # ⭐️ 新增「💡 醞釀反轉」快速篩選按鈕
+        # ⭐️ 新增雙向預警的快速篩選器
         filter_opt = st.radio(
             "🔍 快速篩選：", 
-            ["👀 顯示全部", "🟢 只看買入", "💡 醞釀反轉", "🔴 只看賣出", "⚡ 剛發生交叉"], 
+            ["👀 顯示全部", "🟢 只看買入", "💡 醞釀向上", "⚠️ 醞釀向下", "🔴 只看賣出", "⚡ 剛發生交叉"], 
             index=1,
             horizontal=True
         )
@@ -584,8 +589,10 @@ with tab_dashboard:
         filtered_df = display_df.copy()
         if filter_opt == "🟢 只看買入":
             filtered_df = filtered_df[filtered_df['建議'].str.contains("買入", na=False)]
-        elif filter_opt == "💡 醞釀反轉":
-            filtered_df = filtered_df[filtered_df['建議'].str.contains("醞釀反轉", na=False)]
+        elif filter_opt == "💡 醞釀向上":
+            filtered_df = filtered_df[filtered_df['建議'].str.contains("醞釀向上", na=False)]
+        elif filter_opt == "⚠️ 醞釀向下":
+            filtered_df = filtered_df[filtered_df['建議'].str.contains("醞釀向下", na=False)]
         elif filter_opt == "🔴 只看賣出":
             filtered_df = filtered_df[filtered_df['建議'].str.contains("賣出", na=False)]
         elif filter_opt == "⚡ 剛發生交叉":
