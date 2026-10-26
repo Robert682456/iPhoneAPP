@@ -250,11 +250,15 @@ with tab_dashboard:
                 curr_dif = dif.iloc[-1]
                 prev_dif = dif.iloc[-2]
                 
-                # 初始化週線 DIF 下降變數
+                # 初始化週線 DIF 下降變數與數值
                 weekly_dif_decreasing = False
+                curr_dif_w_val = 0.0
+                prev_dif_w_val = 0.0
                 
                 if interval == "1wk":
                     weekly_dif_decreasing = curr_dif < prev_dif
+                    curr_dif_w_val = curr_dif
+                    prev_dif_w_val = prev_dif
 
                 std20 = close.rolling(20).std()
                 ucl = ma20 + 2 * std20
@@ -311,9 +315,11 @@ with tab_dashboard:
                         dif_w = ema12_w - ema26_w
                         hist_w = dif_w - dif_w.ewm(span=9, adjust=False).mean()
                         
-                        # ⭐️ 在日線模式下，動態提取真實的「週線 DIF 是否下降」
+                        # ⭐️ 在日線模式下，提取真實的「週線 DIF 是否下降」與「具體數值」
                         if len(dif_w) >= 2:
-                            weekly_dif_decreasing = dif_w.iloc[-1] < dif_w.iloc[-2]
+                            curr_dif_w_val = dif_w.iloc[-1]
+                            prev_dif_w_val = dif_w.iloc[-2]
+                            weekly_dif_decreasing = curr_dif_w_val < prev_dif_w_val
                         
                         if hist_w.iloc[-1] > 0 and ma5_w.iloc[-1] > ma10_w.iloc[-1]:
                             is_weekly_bullish = True
@@ -348,7 +354,7 @@ with tab_dashboard:
                         else:
                             daily_status = "🟡日線方向分歧"
 
-                # ⭐️ 順勢基礎判定 (加入週線 DIF 下降作為防守前提)
+                # ⭐️ 順勢基礎判定 (加入週線 DIF 下降數值追蹤)
                 if target_position == 100:
                     if vol_condition:
                         if interval == "1d" and not is_weekly_bullish:
@@ -364,7 +370,7 @@ with tab_dashboard:
                 elif target_position == 0:
                     if weekly_dif_decreasing:
                         rec_text = "🔴 賣出"
-                        detail_reason = f"【雙空頭】週線DIF下降且 {macd_text} 且 {ma_text}，建議出場"
+                        detail_reason = f"【雙空頭】週線DIF下降(由 {prev_dif_w_val:.2f} 降至 {curr_dif_w_val:.2f})且 {macd_text} 且 {ma_text}，建議出場"
                     else:
                         rec_text = "🟡 觀察"
                         detail_reason = f"【防守延遲】{macd_text} 且 {ma_text}，但週線DIF仍上升，暫緩賣出"
@@ -379,10 +385,10 @@ with tab_dashboard:
                 if "買入" not in rec_text:
                     if weekly_dif_decreasing and curr_rsi >= 70:
                         rec_text = "⚠️ 醞釀向下"
-                        detail_reason = f"【逼近超買】週線DIF下降且RSI達高檔 ({curr_rsi:.1f})，極度貪婪隨時面臨下修。"
+                        detail_reason = f"【逼近超買】週線DIF下降(由 {prev_dif_w_val:.2f} 降至 {curr_dif_w_val:.2f})且RSI達高檔 ({curr_rsi:.1f})，極度貪婪隨時面臨下修。"
                     elif weekly_dif_decreasing and curr_hist > 0 and curr_hist < prev_hist and curr_close < curr_ma5:
                         rec_text = "⚠️ 醞釀向下"
-                        detail_reason = f"【動能衰退】MACD紅柱縮減且週線DIF下降，多方推升無力提防見頂。"
+                        detail_reason = f"【動能衰退】MACD紅柱縮減且週線DIF下降(由 {prev_dif_w_val:.2f} 降至 {curr_dif_w_val:.2f})，多方推升無力提防見頂。"
                     elif curr_rsi <= 35:
                         rec_text = "💡 醞釀向上"
                         detail_reason = f"【逼近超賣】RSI降至低檔 ({curr_rsi:.1f})，隨時可能觸發技術性反彈。"
@@ -410,7 +416,7 @@ with tab_dashboard:
                         detail_reason += f" ⚠️ SPC警示：跌破LCL下軌，無爆量承接 (RSI:{curr_rsi:.1f})，提防陰跌探底"
                 elif curr_close >= curr_ucl:
                     if weekly_dif_decreasing:
-                        detail_reason += f" ⚠️ SPC警示：突破UCL上軌且週線DIF下降，極端超漲提防拉回 (RSI:{curr_rsi:.1f})"
+                        detail_reason += f" ⚠️ SPC警示：突破UCL上軌且週線DIF下降(由 {prev_dif_w_val:.2f} 降至 {curr_dif_w_val:.2f})，極端超漲提防拉回 (RSI:{curr_rsi:.1f})"
                     else:
                         detail_reason += f" ⚠️ SPC警示：突破UCL上軌，但週線DIF仍上升，動能延續中 (RSI:{curr_rsi:.1f})"
 
