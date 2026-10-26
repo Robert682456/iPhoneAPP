@@ -15,7 +15,6 @@ st_autorefresh(interval=5 * 60 * 1000, key="auto_refresh")
 # ==========================================
 # 本機設定檔存取邏輯 (狀態記憶功能)
 # ==========================================
-# 強制抓取 app.py 所在的資料夾路徑，確保 .json 檔正確產生
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SETTINGS_FILE = os.path.join(BASE_DIR, "user_settings.json")
 
@@ -138,8 +137,8 @@ with tab_rules:
     1. **順勢共振買點 (長短線雙多)**：
        - **週線保護**：週線 MACD > 0 且 5MA > 10MA。
        - **日線發動**：日線 MACD > 0 且 5MA > 10MA，並且 **當日成交量 > 5日均量**。
-    2. **逆勢超跌買點 (SPC 破底翻)**：
-       - 當股價崩跌至 **LCL 管制下限 (20MA - 2σ)** 之下，代表短線極端超跌、負乖離過大。此時系統會無視均線死叉，強制發出「🟢 逢低買入」訊號，提醒您留意撿便宜與搶反彈的最佳時機。
+    2. **逆勢超跌買點 (爆量止跌)**：
+       - 當股價崩跌至 **LCL 管制下限 (20MA - 2σ)** 之下，且當日 **成交量大於 5日均量的 2 倍** 時，代表出現恐慌殺跌與主力換手承接，此時系統會強制發出「🟢 逢低買入」訊號。若無爆量，則視為陰跌，不予提示買點。
 
     ---
 
@@ -147,8 +146,6 @@ with tab_rules:
     1. **動能轉弱 (MACD 死叉)**：日線 MACD 柱狀圖由紅翻綠 (MACD < 0)。
     2. **趨勢跌破 (均線死叉)**：日線 5MA 跌破 10MA。
     3. **極端超漲 (SPC 管制上限)**：股價突破 UCL 管制上限 (20MA + 2σ)，代表短線過熱，面臨拉回壓力。
-
-    👉 *系統原則：在沒有觸及 LCL 超跌線的前提下，只要日線出現雙空頭 (MACD < 0 且 5MA < 10MA)，即判定為「🔴 賣出」。*
     """)
 
 # ==========================================
@@ -341,10 +338,13 @@ with tab_dashboard:
                     else:
                         detail_reason += f" 👉 短線動態：{daily_status}"
 
-                # ⭐️ 強制覆蓋邏輯：SPC 極端乖離 (跌多逢低買進 / 超漲提防拉回)
+                # ⭐️ 升級：SPC 爆量止跌判定邏輯
                 if curr_close <= curr_lcl:
-                    rec_text = "🟢 逢低買入"
-                    detail_reason = f"【SPC極端超跌】股價已跌破LCL下軌，負乖離過大，醞釀均值回歸反彈，建議逢低佈局！"
+                    if curr_vol > curr_vol_ma5 * 2:  # 量能大於5日均量2倍
+                        rec_text = "🟢 逢低買入"
+                        detail_reason = f"【SPC爆量止跌】跌破LCL且爆出大於5均量2倍成交量，籌碼換手醞釀強彈！"
+                    else:
+                        detail_reason += " ⚠️ SPC警示：跌破LCL下軌，但無爆量承接，提防陰跌探底"
                 elif curr_close >= curr_ucl:
                     detail_reason += " ⚠️ SPC警示：突破UCL上軌，極端超漲提防拉回"
 
@@ -469,7 +469,6 @@ with tab_dashboard:
     if st.button("🔄 手動強制刷新 (重置快取)"):
         st.cache_data.clear()
 
-    # 綁定 key 與 on_change 觸發存檔
     market_ticker = st.text_input("📊 設定總體資金水位參考標的 (預設 0050.TW)：", key="market_ticker_input", on_change=update_other_inputs).strip().upper()
 
     with st.spinner(f"運算 {market_ticker} 總體指標中..."):
@@ -491,10 +490,8 @@ with tab_dashboard:
     st.subheader("🔍 臨時標的快速分析")
     col_t1, col_t2, col_t3 = st.columns([2, 2, 2])
     with col_t1:
-        # 綁定 key 與 on_change 觸發存檔
         st.text_input("輸入代碼 (例：2317.TW)", key="search_ticker", on_change=update_selected_from_search)
     with col_t2:
-        # 綁定 key 與 on_change 觸發存檔
         st.text_input("輸入名稱 (選填，例：鴻海)", key="search_name", on_change=update_other_inputs)
 
     temp_ticker = st.session_state.search_ticker.strip().upper()
