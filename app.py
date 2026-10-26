@@ -226,7 +226,7 @@ with tab_dashboard:
                 dea = dif.ewm(span=9, adjust=False).mean()
                 hist = dif - dea 
                 
-                # ⭐️ 在引擎中計算 RSI (14週期) 供邏輯判定使用
+                # 在引擎中計算 RSI (14週期)
                 delta = close.diff()
                 gain = delta.clip(lower=0)
                 loss = -1 * delta.clip(upper=0)
@@ -255,21 +255,35 @@ with tab_dashboard:
                 elif change_pct < 0: price_display = f"🔻 {curr_close:.2f} ({change_pct:.2f}%)"
                 else: price_display = f"➖ {curr_close:.2f} (0.00%)"
                 
+                # ⭐️ 更新：取得最後一天 K 線的日期，加入到「最新動態」中
+                last_date_str = close.index[-1].strftime('%m/%d')
+                
                 actions = []
                 if interval == "1d" and prev_close <= prev_ma20 and curr_close > curr_ma20:
-                    actions.append("日線突破20MA")
+                    actions.append(f"日線突破20MA ({last_date_str})")
                 if hist.iloc[-2] <= 0 and curr_hist > 0:
-                    actions.append("MACD剛金叉")
+                    actions.append(f"MACD剛金叉 ({last_date_str})")
                 elif hist.iloc[-2] >= 0 and curr_hist < 0:
-                    actions.append("MACD剛死叉")
+                    actions.append(f"MACD剛死叉 ({last_date_str})")
                 if ma5.iloc[-2] <= ma10.iloc[-2] and curr_ma5 > curr_ma10:
-                    actions.append("MA剛金叉")
+                    actions.append(f"MA剛金叉 ({last_date_str})")
                 elif ma5.iloc[-2] >= ma10.iloc[-2] and curr_ma5 < curr_ma10:
-                    actions.append("MA剛死叉")
+                    actions.append(f"MA剛死叉 ({last_date_str})")
                     
                 target_position = (50 if curr_hist > 0 else 0) + (50 if curr_ma5 > curr_ma10 else 0)
-                macd_text = "MACD>0" if curr_hist > 0 else "MACD<0"
-                ma_text = f"{ma_s_label}>{ma_l_label}" if curr_ma5 > curr_ma10 else f"{ma_s_label}<{ma_l_label}"
+                
+                # ⭐️ 更新：計算並追溯前一次發生交叉的歷史日期
+                macd_sign = (hist > 0).astype(int)
+                macd_crosses = macd_sign.diff()[macd_sign.diff() != 0].dropna()
+                macd_date = macd_crosses.index[-1].strftime('%m/%d') if not macd_crosses.empty else "-"
+                
+                ma_sign = (ma5 > ma10).astype(int)
+                ma_crosses = ma_sign.diff()[ma_sign.diff() != 0].dropna()
+                ma_date = ma_crosses.index[-1].strftime('%m/%d') if not ma_crosses.empty else "-"
+
+                # 組合出包含歷史日期的說明文字
+                macd_text = f"MACD>0 (自{macd_date})" if curr_hist > 0 else f"MACD<0 (自{macd_date})"
+                ma_text = f"{ma_s_label}>{ma_l_label} (自{ma_date})" if curr_ma5 > curr_ma10 else f"{ma_s_label}<{ma_l_label} (自{ma_date})"
                 
                 is_weekly_bullish = True
                 weekly_status = ""
@@ -346,7 +360,7 @@ with tab_dashboard:
                     else:
                         detail_reason += f" 👉 短線動態：{daily_status}"
 
-                # ⭐️ 升級：SPC 爆量止跌 + RSI 雙重防護邏輯
+                # SPC 爆量止跌 + RSI 雙重防護邏輯
                 if curr_close <= curr_lcl:
                     if curr_vol > curr_vol_ma5 * 2 and curr_rsi < 30:
                         rec_text = "🟢 逢低買入"
