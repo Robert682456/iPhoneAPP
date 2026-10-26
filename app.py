@@ -15,8 +15,7 @@ st_autorefresh(interval=5 * 60 * 1000, key="auto_refresh")
 # ==========================================
 # 本機設定檔存取邏輯 (狀態記憶功能)
 # ==========================================
-import os
-# 強制抓取 app.py 所在的資料夾路徑
+# 強制抓取 app.py 所在的資料夾路徑，確保 .json 檔正確產生
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SETTINGS_FILE = os.path.join(BASE_DIR, "user_settings.json")
 
@@ -133,35 +132,23 @@ with tab_settings:
 with tab_rules:
     st.header("📖 雙指標波段系統 - 判斷原則")
     st.markdown("""
-    本系統以 **「週線級別的買入訊號」** 作為核心標準與操作前提，徹底貫徹 **「長線保護短線」** 的交易紀律。
+    本系統融合了「順勢波段交易」與「逆勢均值回歸(抄底)」兩種邏輯，全面防護您的資金。
     
-    ### 🎯 核心精神：週線決定方向，日線尋找買點
-    必須在「週線大趨勢偏多」的保護傘下，才能在「日線」尋找切入發動點。嚴格禁止在週線空頭趨勢中搶買日線的反彈。
-
-    ---
-
-    ### 🟢 買入標準 (必須同時滿足)
-    1. **大趨勢保護 (週線條件 - 先決標準)**：
-       - **週線 MACD > 0**：柱狀圖位於零軸之上，屬於長線多頭格局。
-       - **週線 5MA > 10MA**：短期均線大於長期均線。
-    2. **精準發動點 (日線條件)**：
-       - **日線 MACD > 0**：短線動能翻多。
-       - **日線 5MA > 10MA**：短線均線黃金交叉。
-       - **帶量上攻**：當日成交量必須 **大於 5日均量**，確認有主力資金點火。
+    ### 🟢 買入標準 (滿足其一即為買點)
+    1. **順勢共振買點 (長短線雙多)**：
+       - **週線保護**：週線 MACD > 0 且 5MA > 10MA。
+       - **日線發動**：日線 MACD > 0 且 5MA > 10MA，並且 **當日成交量 > 5日均量**。
+    2. **逆勢超跌買點 (SPC 破底翻)**：
+       - 當股價崩跌至 **LCL 管制下限 (20MA - 2σ)** 之下，代表短線極端超跌、負乖離過大。此時系統會無視均線死叉，強制發出「🟢 逢低買入」訊號，提醒您留意撿便宜與搶反彈的最佳時機。
 
     ---
 
     ### 🔴 賣出與防守標準 (滿足其一即應警戒)
     1. **動能轉弱 (MACD 死叉)**：日線 MACD 柱狀圖由紅翻綠 (MACD < 0)。
     2. **趨勢跌破 (均線死叉)**：日線 5MA 跌破 10MA。
-    3. **生命線跌破 (破月線)**：日線收盤價跌穿 20MA (月線)，視為波段防守線失守。
+    3. **極端超漲 (SPC 管制上限)**：股價突破 UCL 管制上限 (20MA + 2σ)，代表短線過熱，面臨拉回壓力。
 
-    ---
-    
-    ### 📉 SPC 極端乖離監控 (布林通道)
-    本系統導入品管工程的 SPC (Statistical Process Control) 管制圖邏輯，監控極端乖離：
-    - **UCL 管制上限 (20MA + 2σ)**：突破上軌代表製程失控(極端超漲)，隨時面臨均值回歸的拉回壓力，不宜追高。
-    - **LCL 管制下限 (20MA - 2σ)**：跌破下軌代表極端超跌，此時乖離率極大，往往醞釀強烈的技術性反彈。
+    👉 *系統原則：在沒有觸及 LCL 超跌線的前提下，只要日線出現雙空頭 (MACD < 0 且 5MA < 10MA)，即判定為「🔴 賣出」。*
     """)
 
 # ==========================================
@@ -326,6 +313,7 @@ with tab_dashboard:
                         else:
                             daily_status = "🟡日線方向分歧"
 
+                # 順勢邏輯判定
                 if target_position == 100:
                     if vol_condition:
                         if interval == "1d" and not is_weekly_bullish:
@@ -353,10 +341,12 @@ with tab_dashboard:
                     else:
                         detail_reason += f" 👉 短線動態：{daily_status}"
 
-                if curr_close >= curr_ucl:
+                # ⭐️ 強制覆蓋邏輯：SPC 極端乖離 (跌多逢低買進 / 超漲提防拉回)
+                if curr_close <= curr_lcl:
+                    rec_text = "🟢 逢低買入"
+                    detail_reason = f"【SPC極端超跌】股價已跌破LCL下軌，負乖離過大，醞釀均值回歸反彈，建議逢低佈局！"
+                elif curr_close >= curr_ucl:
                     detail_reason += " ⚠️ SPC警示：突破UCL上軌，極端超漲提防拉回"
-                elif curr_close <= curr_lcl:
-                    detail_reason += " ⚠️ SPC警示：跌破LCL下軌，極端超跌醞釀反彈"
 
                 results.append({
                     "代碼": ticker, 
@@ -379,7 +369,7 @@ with tab_dashboard:
         df_results = pd.DataFrame(results)
         if not df_results.empty:
             def get_sort_rank(row):
-                if "🟢 買入" in row['建議']: return 1
+                if "買入" in row['建議']: return 1  # 包含「🟢 買入」與「🟢 逢低買入」
                 elif "🔴 賣出" in row['建議']: return 2
                 elif "🟡 觀察" in row['建議']: return 3
                 else: return 4
@@ -517,7 +507,6 @@ with tab_dashboard:
             temp_df = analyze_signals(tf_interval, tf_period, ma_s_lbl, ma_l_lbl, temp_dict)
             
         if not temp_df.empty and "⚠️ 無資料" not in temp_df.iloc[0]['收盤價(漲跌)']:
-            # ⭐️ 套用 LinkColumn 使網址變成可點擊的按鈕
             st.dataframe(
                 style_dataframe(temp_df), 
                 use_container_width=True,
@@ -561,7 +550,6 @@ with tab_dashboard:
         if filtered_df.empty: 
             st.info("目前無符合篩選條件的標的。")
         else: 
-            # ⭐️ 套用 LinkColumn
             display_event = st.dataframe(
                 style_dataframe(filtered_df), 
                 use_container_width=True,
@@ -579,7 +567,7 @@ with tab_dashboard:
         with st.expander("📊 計算『買入』標的歷史勝率 (近一年回測)"):
             if st.button("🚀 執行歷史回測"):
                 if buy_df.empty:
-                    st.warning("目前沒有處於『🟢 買入』狀態的標的，無法進行回測。")
+                    st.warning("目前沒有處於買入狀態的標的，無法進行回測。")
                 else:
                     with st.spinner("正在進行歷史交易模擬回測..."):
                         backtest_results = []
