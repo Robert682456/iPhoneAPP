@@ -52,14 +52,12 @@ if 'market_ticker_input' not in st.session_state:
     st.session_state.market_ticker_input = settings.get("market_ticker", "0050.TW")
 
 def update_selected_from_search():
-    """當搜尋框內容改變時，自動將 K 線圖切換至搜尋標的，並觸發存檔"""
     val = st.session_state.search_ticker.strip().upper()
     if val:
         st.session_state.selected_ticker = val
     save_settings()
 
 def update_other_inputs():
-    """當名稱或大盤代碼改變時，觸發存檔"""
     save_settings()
 
 DEFAULT_LIST = """0050.TW,元大台灣50
@@ -310,7 +308,6 @@ with tab_dashboard:
                         else:
                             daily_status = "🟡日線方向分歧"
 
-                # 順勢邏輯判定
                 if target_position == 100:
                     if vol_condition:
                         if interval == "1d" and not is_weekly_bullish:
@@ -338,9 +335,8 @@ with tab_dashboard:
                     else:
                         detail_reason += f" 👉 短線動態：{daily_status}"
 
-                # ⭐️ 升級：SPC 爆量止跌判定邏輯
                 if curr_close <= curr_lcl:
-                    if curr_vol > curr_vol_ma5 * 2:  # 量能大於5日均量2倍
+                    if curr_vol > curr_vol_ma5 * 2:
                         rec_text = "🟢 逢低買入"
                         detail_reason = f"【SPC爆量止跌】跌破LCL且爆出大於5均量2倍成交量，籌碼換手醞釀強彈！"
                     else:
@@ -369,7 +365,7 @@ with tab_dashboard:
         df_results = pd.DataFrame(results)
         if not df_results.empty:
             def get_sort_rank(row):
-                if "買入" in row['建議']: return 1  # 包含「🟢 買入」與「🟢 逢低買入」
+                if "買入" in row['建議']: return 1
                 elif "🔴 賣出" in row['建議']: return 2
                 elif "🟡 觀察" in row['建議']: return 3
                 else: return 4
@@ -461,6 +457,15 @@ with tab_dashboard:
         df['MACD_Hist'] = df['DIF'] - df['DEA']
         df['MACD_Color'] = ['#ef5350' if val > 0 else '#26a69a' for val in df['MACD_Hist']]
         
+        # ⭐️ 計算 RSI (14週期)
+        delta = df['Close'].diff()
+        gain = delta.clip(lower=0)
+        loss = -1 * delta.clip(upper=0)
+        ema_gain = gain.ewm(com=13, adjust=False).mean()
+        ema_loss = loss.ewm(com=13, adjust=False).mean()
+        rs = ema_gain / ema_loss
+        df['RSI'] = 100 - (100 / (1 + rs))
+
         df['Candle_Dir'] = df['Close'] >= df['Open']
         df['Vol_Color'] = ['#ef5350' if d else '#26a69a' for d in df['Candle_Dir']]
         return df
@@ -606,9 +611,11 @@ with tab_dashboard:
             chart_df = get_chart_data(selected_ticker, tf_interval, "5y")
             
             if chart_df is not None:
-                fig = make_subplots(rows=3, cols=1, shared_xaxes=True, 
-                                    vertical_spacing=0.03, row_heights=[0.5, 0.2, 0.3])
+                # ⭐️ 更新：將原本的 3 列圖表擴展為 4 列，分配高度比例
+                fig = make_subplots(rows=4, cols=1, shared_xaxes=True, 
+                                    vertical_spacing=0.03, row_heights=[0.4, 0.2, 0.2, 0.2])
 
+                # Row 1: K線與均線、通道
                 fig.add_trace(go.Candlestick(x=chart_df.index, open=chart_df['Open'], high=chart_df['High'],
                                              low=chart_df['Low'], close=chart_df['Close'], 
                                              name='K線', increasing_line_color='#ef5350', decreasing_line_color='#26a69a'), row=1, col=1)
@@ -633,12 +640,20 @@ with tab_dashboard:
                                   annotation_text=f"近期支撐 {recent_low:.2f}", annotation_position="bottom right", 
                                   annotation_font=dict(color="#26a69a", size=12), row=1, col=1)
 
+                # Row 2: 成交量
                 fig.add_trace(go.Bar(x=chart_df.index, y=chart_df['Volume'], marker_color=chart_df['Vol_Color'], name='成交量'), row=2, col=1)
                 fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['Vol_MA5'], line=dict(color='orange', width=1), name='5均量'), row=2, col=1)
 
+                # Row 3: MACD
                 fig.add_trace(go.Bar(x=chart_df.index, y=chart_df['MACD_Hist'], marker_color=chart_df['MACD_Color'], name='MACD柱'), row=3, col=1)
                 fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['DIF'], line=dict(color='orange', width=1.5), name='DIF'), row=3, col=1)
                 fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['DEA'], line=dict(color='blue', width=1.5), name='DEA(MACD)'), row=3, col=1)
+
+                # ⭐️ Row 4: RSI 副圖
+                fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['RSI'], line=dict(color='#8e24aa', width=1.5), name='RSI(14)'), row=4, col=1)
+                # 加入 RSI 70 與 30 參考線
+                fig.add_hline(y=70, line_dash="dash", line_color="rgba(239, 83, 80, 0.5)", line_width=1, row=4, col=1)
+                fig.add_hline(y=30, line_dash="dash", line_color="rgba(38, 166, 154, 0.5)", line_width=1, row=4, col=1)
 
                 chart_dates = chart_df.index.strftime('%Y-%m-%d').tolist()
                 dt_all = pd.date_range(start=chart_df.index[0], end=chart_df.index[-1])
@@ -674,7 +689,7 @@ with tab_dashboard:
                 )
 
                 fig.update_layout(
-                    height=750, 
+                    height=850, # 配合新增的圖層，稍微拉高整體圖表高度
                     margin=dict(l=10, r=10, t=40, b=120), 
                     xaxis_rangeslider_visible=False,
                     legend=dict(
@@ -686,6 +701,8 @@ with tab_dashboard:
                     ), 
                     hovermode="x unified"
                 )
+                # 設定 RSI 的 Y 軸範圍限制在 0-100 之間
+                fig.update_yaxes(range=[0, 100], row=4, col=1)
                 
                 st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
             else:
