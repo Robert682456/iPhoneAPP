@@ -135,8 +135,8 @@ with tab_rules:
     1. **順勢共振買點 (長短線雙多)**：
        - **週線保護**：週線 MACD > 0 且 5MA > 10MA。
        - **日線發動**：日線 MACD > 0 且 5MA > 10MA，並且 **當日成交量 > 5日均量**。
-    2. **逆勢超跌買點 (爆量止跌)**：
-       - 當股價崩跌至 **LCL 管制下限 (20MA - 2σ)** 之下，且當日 **成交量大於 5日均量的 2 倍** 時，代表出現恐慌殺跌與主力換手承接，此時系統會強制發出「🟢 逢低買入」訊號。若無爆量，則視為陰跌，不予提示買點。
+    2. **逆勢超跌買點 (爆量 + RSI 雙濾網)**：
+       - 當股價崩跌至 **LCL 管制下限 (20MA - 2σ)** 之下，且當日 **成交量大於 5日均量的 2 倍**，同時 **RSI(14) 低於 30 (極度超賣)** 時，代表出現恐慌殺跌與主力換手承接，此時系統會強制發出「🟢 逢低買入」訊號。
 
     ---
 
@@ -226,6 +226,16 @@ with tab_dashboard:
                 dea = dif.ewm(span=9, adjust=False).mean()
                 hist = dif - dea 
                 
+                # ⭐️ 在引擎中計算 RSI (14週期) 供邏輯判定使用
+                delta = close.diff()
+                gain = delta.clip(lower=0)
+                loss = -1 * delta.clip(upper=0)
+                ema_gain = gain.ewm(com=13, adjust=False).mean()
+                ema_loss = loss.ewm(com=13, adjust=False).mean()
+                rs = ema_gain / ema_loss
+                rsi = 100 - (100 / (1 + rs))
+                curr_rsi = rsi.iloc[-1]
+                
                 curr_close, prev_close = close.iloc[-1], close.iloc[-2]
                 curr_ma5, curr_ma10 = ma5.iloc[-1], ma10.iloc[-1]
                 curr_ma20, prev_ma20 = ma20.iloc[-1], ma20.iloc[-2]
@@ -308,6 +318,7 @@ with tab_dashboard:
                         else:
                             daily_status = "🟡日線方向分歧"
 
+                # 順勢邏輯判定
                 if target_position == 100:
                     if vol_condition:
                         if interval == "1d" and not is_weekly_bullish:
@@ -335,14 +346,17 @@ with tab_dashboard:
                     else:
                         detail_reason += f" 👉 短線動態：{daily_status}"
 
+                # ⭐️ 升級：SPC 爆量止跌 + RSI 雙重防護邏輯
                 if curr_close <= curr_lcl:
-                    if curr_vol > curr_vol_ma5 * 2:
+                    if curr_vol > curr_vol_ma5 * 2 and curr_rsi < 30:
                         rec_text = "🟢 逢低買入"
-                        detail_reason = f"【SPC爆量止跌】跌破LCL且爆出大於5均量2倍成交量，籌碼換手醞釀強彈！"
+                        detail_reason = f"【SPC極端超跌】跌破LCL、爆出2倍均量且RSI超賣({curr_rsi:.1f})，籌碼換手醞釀強彈！"
+                    elif curr_vol > curr_vol_ma5 * 2:
+                        detail_reason += f" ⚠️ SPC警示：跌破LCL且爆量，但RSI未達超賣({curr_rsi:.1f})，動能尚未完全竭盡"
                     else:
-                        detail_reason += " ⚠️ SPC警示：跌破LCL下軌，但無爆量承接，提防陰跌探底"
+                        detail_reason += f" ⚠️ SPC警示：跌破LCL下軌，但無爆量承接 (RSI:{curr_rsi:.1f})，提防陰跌探底"
                 elif curr_close >= curr_ucl:
-                    detail_reason += " ⚠️ SPC警示：突破UCL上軌，極端超漲提防拉回"
+                    detail_reason += f" ⚠️ SPC警示：突破UCL上軌，極端超漲提防拉回 (RSI:{curr_rsi:.1f})"
 
                 results.append({
                     "代碼": ticker, 
@@ -365,7 +379,7 @@ with tab_dashboard:
         df_results = pd.DataFrame(results)
         if not df_results.empty:
             def get_sort_rank(row):
-                if "買入" in row['建議']: return 1
+                if "買入" in row['建議']: return 1  
                 elif "🔴 賣出" in row['建議']: return 2
                 elif "🟡 觀察" in row['建議']: return 3
                 else: return 4
@@ -457,7 +471,6 @@ with tab_dashboard:
         df['MACD_Hist'] = df['DIF'] - df['DEA']
         df['MACD_Color'] = ['#ef5350' if val > 0 else '#26a69a' for val in df['MACD_Hist']]
         
-        # ⭐️ 計算 RSI (14週期)
         delta = df['Close'].diff()
         gain = delta.clip(lower=0)
         loss = -1 * delta.clip(upper=0)
@@ -611,11 +624,9 @@ with tab_dashboard:
             chart_df = get_chart_data(selected_ticker, tf_interval, "5y")
             
             if chart_df is not None:
-                # ⭐️ 更新：將原本的 3 列圖表擴展為 4 列，分配高度比例
                 fig = make_subplots(rows=4, cols=1, shared_xaxes=True, 
                                     vertical_spacing=0.03, row_heights=[0.4, 0.2, 0.2, 0.2])
 
-                # Row 1: K線與均線、通道
                 fig.add_trace(go.Candlestick(x=chart_df.index, open=chart_df['Open'], high=chart_df['High'],
                                              low=chart_df['Low'], close=chart_df['Close'], 
                                              name='K線', increasing_line_color='#ef5350', decreasing_line_color='#26a69a'), row=1, col=1)
@@ -640,18 +651,14 @@ with tab_dashboard:
                                   annotation_text=f"近期支撐 {recent_low:.2f}", annotation_position="bottom right", 
                                   annotation_font=dict(color="#26a69a", size=12), row=1, col=1)
 
-                # Row 2: 成交量
                 fig.add_trace(go.Bar(x=chart_df.index, y=chart_df['Volume'], marker_color=chart_df['Vol_Color'], name='成交量'), row=2, col=1)
                 fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['Vol_MA5'], line=dict(color='orange', width=1), name='5均量'), row=2, col=1)
 
-                # Row 3: MACD
                 fig.add_trace(go.Bar(x=chart_df.index, y=chart_df['MACD_Hist'], marker_color=chart_df['MACD_Color'], name='MACD柱'), row=3, col=1)
                 fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['DIF'], line=dict(color='orange', width=1.5), name='DIF'), row=3, col=1)
                 fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['DEA'], line=dict(color='blue', width=1.5), name='DEA(MACD)'), row=3, col=1)
 
-                # ⭐️ Row 4: RSI 副圖
                 fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['RSI'], line=dict(color='#8e24aa', width=1.5), name='RSI(14)'), row=4, col=1)
-                # 加入 RSI 70 與 30 參考線
                 fig.add_hline(y=70, line_dash="dash", line_color="rgba(239, 83, 80, 0.5)", line_width=1, row=4, col=1)
                 fig.add_hline(y=30, line_dash="dash", line_color="rgba(38, 166, 154, 0.5)", line_width=1, row=4, col=1)
 
@@ -689,7 +696,7 @@ with tab_dashboard:
                 )
 
                 fig.update_layout(
-                    height=850, # 配合新增的圖層，稍微拉高整體圖表高度
+                    height=850, 
                     margin=dict(l=10, r=10, t=40, b=120), 
                     xaxis_rangeslider_visible=False,
                     legend=dict(
@@ -701,7 +708,6 @@ with tab_dashboard:
                     ), 
                     hovermode="x unified"
                 )
-                # 設定 RSI 的 Y 軸範圍限制在 0-100 之間
                 fig.update_yaxes(range=[0, 100], row=4, col=1)
                 
                 st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
