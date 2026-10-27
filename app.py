@@ -135,7 +135,7 @@ with tab_rules:
     2. **逆勢超跌買點 (爆量 + RSI 雙濾網)**：跌破 LCL (20MA-2σ)，成交量大於 5日均量 2 倍，且 RSI(14) < 30。
 
     ### 💡 雙向預警雷達 (提早抓轉折)
-    - **💡 醞釀向上 (主力打底區)**：MACD 綠柱縮減且股價站上 5MA；或 RSI(14) ≤ 35。
+    - **💡 醞釀向上 (主力打底區)**：MACD 綠柱縮減且股價站上 5MA；或 RSI(14) ≤ 35。強烈建議列入買進觀察清單。
     - **⚠️ 醞釀向下 (提防見頂)**：(需滿足 **週線 DIF 下降** 前提) MACD 紅柱縮減且股價跌破 5MA；或 RSI(14) ≥ 70。
 
     ---
@@ -143,7 +143,7 @@ with tab_rules:
     ### 🔴 賣出防守與「避免殺低」原則
     - **賣出前提**：當週 MACD 的 DIF 值 < 前一週 DIF 值 (代表長線動能確實衰退)。
     - 若滿足賣出前提，且發生日線死叉，系統會建議「🔴 賣出」。
-    - **🟡 避免殺低防護網 (極重要)**：若已滿足賣出條件，但股價**已跌破 LCL 下軌** 或 **RSI(14) ≤ 30**，代表短線乖離過大。此時系統會強制攔截賣出訊號，改為提示**「🟡 避免殺低」**，提醒您切勿砍在阿呆谷，應等待技術性反彈再現。
+    - **🟡 避免殺低防護網 (極重要)**：若已滿足賣出條件，但股價**已跌破 LCL 下軌** 或 **RSI(14) ≤ 30**，代表短線乖離過大。此時系統會強制攔截賣出訊號，改為提示**「🟡 避免殺低」**，並自動為您計算第一階段反彈壓力位 (10MA)，提醒您等待技術性反彈再現再行處理。
     """)
 
 # ==========================================
@@ -347,7 +347,7 @@ with tab_dashboard:
                         else:
                             daily_status = "🟡日線方向分歧"
 
-                # ⭐️ 基礎判定 (加入「避免殺低」覆蓋邏輯)
+                # ⭐️ 基礎判定 (加入自動標示反彈壓力位)
                 if target_position == 100:
                     if vol_condition:
                         if interval == "1d" and not is_weekly_bullish:
@@ -362,10 +362,10 @@ with tab_dashboard:
                         detail_reason = f"【量能不足】{macd_text} 且 {ma_text}，量縮觀望"
                 elif target_position == 0:
                     if weekly_dif_decreasing:
-                        # 💡 新增：跌深免死金牌 (避免殺低)
                         if curr_rsi <= 30 or curr_close <= curr_lcl:
                             rec_text = "🟡 避免殺低"
-                            detail_reason = f"【乖離過大】雖然週線DIF下降且已破線，但股價跌破LCL或RSI極度超賣({curr_rsi:.1f})，切勿在此恐慌殺低，請等待反彈再處理。"
+                            # 💡 精算第一階段壓力位
+                            detail_reason = f"【乖離過大】雖週線DIF下降且已破線，但股價跌破LCL或RSI極度超賣({curr_rsi:.1f})，切勿恐慌殺低。 👉 預估初步反彈壓力：{ma_l_label} (約 {curr_ma10:.2f})"
                         else:
                             rec_text = "🔴 賣出"
                             detail_reason = f"【雙空頭】週線DIF下降(由 {prev_dif_w_val:.2f} 降至 {curr_dif_w_val:.2f})且 {macd_text} 且 {ma_text}，建議出場。"
@@ -379,14 +379,14 @@ with tab_dashboard:
                     else:
                         detail_reason = f"【方向分歧】{macd_text} 但 {ma_text}，指標未同步。"
 
-                # 雙向預警雷達 (若尚未滿足買賣條件)
+                # 雙向預警雷達
                 if "買入" not in rec_text and "賣出" not in rec_text and "殺低" not in rec_text:
                     if weekly_dif_decreasing and curr_rsi >= 70:
                         rec_text = "⚠️ 醞釀向下"
                         detail_reason = f"【逼近超買】週線DIF下降(由 {prev_dif_w_val:.2f} 降至 {curr_dif_w_val:.2f})且RSI達高檔 ({curr_rsi:.1f})，極度貪婪隨時面臨下修。"
                     elif weekly_dif_decreasing and curr_hist > 0 and curr_hist < prev_hist and curr_close < curr_ma5:
                         rec_text = "⚠️ 醞釀向下"
-                        detail_reason = f"【動能衰退】MACD紅柱縮減且週線DIF下降，多方推升無力提防見頂。"
+                        detail_reason = f"【動能衰退】MACD紅柱縮減且週線DIF下降(由 {prev_dif_w_val:.2f} 降至 {curr_dif_w_val:.2f})，多方推升無力提防見頂。"
                     elif curr_rsi <= 35:
                         rec_text = "💡 醞釀向上"
                         detail_reason = f"【逼近超賣】RSI降至低檔 ({curr_rsi:.1f})，隨時可能觸發技術性反彈。"
@@ -403,7 +403,7 @@ with tab_dashboard:
                     else:
                         detail_reason += f" 👉 短線動態：{daily_status}"
 
-                # SPC 爆量止跌 + RSI 雙重防護邏輯 (最高優先級，可覆蓋前面所有邏輯)
+                # SPC 爆量止跌 + RSI 雙重防護邏輯
                 if curr_close <= curr_lcl:
                     if curr_vol > curr_vol_ma5 * 2 and curr_rsi < 30:
                         rec_text = "🟢 逢低買入"
@@ -442,7 +442,7 @@ with tab_dashboard:
                 if "買入" in row['建議']: return 1  
                 elif "醞釀向上" in row['建議']: return 2
                 elif "醞釀向下" in row['建議']: return 3
-                elif "避免殺低" in row['建議']: return 4 # 優先於觀察與賣出
+                elif "避免殺低" in row['建議']: return 4 
                 elif "觀察" in row['建議']: return 5
                 elif "🔴 賣出" in row['建議']: return 6
                 else: return 7
@@ -627,7 +627,6 @@ with tab_dashboard:
     if not display_df.empty:
         st.subheader(f"📊 自選股狀態總覽 ({timeframe_option})")
         
-        # ⭐️ 篩選器加入了「避免殺低」按鈕
         filter_opt = st.radio(
             "🔍 快速篩選：", 
             ["👀 顯示全部", "🟢 只看買入", "💡 醞釀向上", "⚠️ 醞釀向下", "🟡 避免殺低", "🔴 只看賣出", "⚡ 剛發生交叉"], 
