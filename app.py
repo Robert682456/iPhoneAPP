@@ -104,7 +104,7 @@ hide_st_style = """
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
-# ⭐️ 核心更新：新增第 4 個分頁「⚔️ 買賣戰情室」
+# 建立 4 個分頁
 tab_dashboard, tab_rules, tab_settings, tab_war_room = st.tabs(["📊 看盤儀表板", "📖 策略判斷原則", "⚙️ 自選股編輯", "⚔️ 買賣戰情室"])
 display_df = pd.DataFrame()
 
@@ -148,7 +148,7 @@ with tab_rules:
     """)
 
 # ==========================================
-# 分頁 1：主看盤儀表板 (還原原本完整的過濾按鈕)
+# 分頁 1：主看盤儀表板 
 # ==========================================
 with tab_dashboard:
     col1, col2 = st.columns([1, 1])
@@ -449,14 +449,205 @@ with tab_dashboard:
             display_df['SortRank'] = display_df.apply(get_sort_rank, axis=1)
             display_df = display_df.sort_values(by=['SortRank', '代碼']).drop(columns=['SortRank']).reset_index(drop=True)
             
+        return display_df
+
+    @st.cache_data(ttl=86400)
+    def calculate_win_rate(ticker, name, interval):
+        try:
+            df = yf.download(ticker, period="1y", interval=interval, progress=False)
+            if df.empty or len(df) < 35: return None
+            
+            df_w = yf.download(ticker, period="2y", interval="1wk", progress=False)
+            
+            close = df['Close'][ticker] if isinstance(df.columns, pd.MultiIndex) else df['Close']
+            volume = df['Volume'][ticker] if isinstance(df.columns, pd.MultiIndex) else df['Volume']
+            close = close.dropna()
+            volume = volume.dropna()
+            
+            close_w = df_w['Close'][ticker] if isinstance(df_w.columns, pd.MultiIndex) else df_w['Close']
+            close_w = close_w.dropna()
+            ema12_w = close_w.ewm(span=12, adjust=False).mean()
+            ema26_w = close_w.ewm(span=26, adjust=False).mean()
+            dif_w = ema12_w - ema26_w
+            wdif_dec = (dif_w < dif_w.shift(1)).astype(int)
+            
+            if interval == '1d':
+                wdif_dec_daily = wdif_dec.reindex(close.index, method='ffill').fillna(0)
+            
+            ma5, ma10 = close.rolling(5).mean(), close.rolling(10).mean()
+            vol_ma5 = volume.rolling(5).mean()
+            
+            ema12, ema26 = close.ewm(span=12, adjust=False).mean(), close.ewm(span=26, adjust=False).mean()
+            dif = ema12 - ema26
+            dea = dif.ewm(span=9, adjust=False).mean()
+            hist = dif - dea 
+            
+            trades, wins = 0, 0
+            holding = False
+            buy_price = 0
+            
+            for i in range(20, len(close)):
+                curr_close = close.iloc[i]
+                curr_ma5, curr_ma10 = ma5.iloc[i], ma10.iloc[i]
+                curr_hist = hist.iloc[i]
+                curr_vol, curr_vol_ma5 = volume.iloc[i], vol_ma5.iloc[i]
+                
+                if interval == '1d':
+                    weekly_dif_decreasing = bool(wdif_dec_daily.iloc[i])
+                else:
+                    weekly_dif_decreasing = dif.iloc[i] < dif.iloc[i-1]
+                    
+                vol_condition = curr_vol > curr_vol_ma5
+                target_position = (50 if curr_hist > 0 else 0) + (50 if curr_ma5 > curr_ma10 else 0)
+                
+                if not holding and target_position == 100 and vol_condition:
+                    holding = True
+                    buy_price = curr_close
+                elif holding and target_position == 0 and weekly_dif_decreasing:
+                    holding = False
+                    trades += 1
+                    if curr_close > buy_price:
+                        wins += 1
+                        
+            win_rate = (wins / trades * 100) if trades > 0 else 0
+            return {
+                "代碼": ticker, 
+                "名稱": name,
+                "總交易次數": trades, 
+                "獲利次數": wins, 
+                "歷史勝率": f"{win_rate:.1f}%" if trades > 0 else "無交易紀錄"
+            }
+        except Exception:
+            return None
+
+    def style_dataframe(df):
+        def color_trend(val):
+            if isinstance(val, str):
+                if '🔺' in val: return 'color: #ff4b4b; font-weight: bold;'
+                elif '🔻' in val: return 'color: #00c853; font-weight: bold;'
+                elif '⚠️' in val: return 'color: #f57c00; font-weight: bold;'
+            return ''
+        if hasattr(df.style, "map"): return df.style.map(color_trend, subset=['收盤價(漲跌)'])
+        else: return df.style.applymap(color_trend, subset=['收盤價(漲跌)'])
+
+    @st.cache_data(ttl=300)
+    def get_chart_data(ticker, interval, period):
+        df = yf.download(ticker, period=period, interval=interval, progress=False)
+        if df.empty: return None
+        if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
+        
+        df = df.dropna()
+        df['MA5'] = df['Close'].rolling(window=5).mean()
+        df['MA10'] = df['Close'].rolling(window=10).mean()
+        df['MA20'] = df['Close'].rolling(window=20).mean() 
+        df['Vol_MA5'] = df['Volume'].rolling(window=5).mean()
+        
+        df['STD20'] = df['Close'].rolling(window=20).std()
+        df['UCL'] = df['MA20'] + 2 * df['STD20']
+        df['LCL'] = df['MA20'] - 2 * df['STD20']
+
+        df['DIF'] = df['Close'].ewm(span=12, adjust=False).mean() - df['Close'].ewm(span=26, adjust=False).mean()
+        df['DEA'] = df['DIF'].ewm(span=9, adjust=False).mean()
+        df['MACD_Hist'] = df['DIF'] - df['DEA']
+        df['MACD_Color'] = ['#ef5350' if val > 0 else '#26a69a' for val in df['MACD_Hist']]
+        
+        delta = df['Close'].diff()
+        gain = delta.clip(lower=0)
+        loss = -1 * delta.clip(upper=0)
+        ema_gain = gain.ewm(com=13, adjust=False).mean()
+        ema_loss = loss.ewm(com=13, adjust=False).mean()
+        rs = ema_gain / ema_loss
+        df['RSI'] = 100 - (100 / (1 + rs))
+
+        df['Candle_Dir'] = df['Close'] >= df['Open']
+        df['Vol_Color'] = ['#ef5350' if d else '#26a69a' for d in df['Candle_Dir']]
+        return df
+
+    # --- 儀表板 UI 渲染區塊 ---
+    if st.button("🔄 手動強制刷新 (重置快取)"):
+        st.cache_data.clear()
+
+    # ⭐️ 補回漏掉的總體資金水位儀表板
+    market_ticker = st.text_input("📊 設定總體資金水位參考標的 (預設 0050.TW)：", key="market_ticker_input", on_change=update_other_inputs).strip().upper()
+    with st.spinner(f"運算 {market_ticker} 總體指標中..."):
+        market_trend = get_market_trend(market_ticker, tf_interval, tf_period)
+        if market_trend:
+            st.markdown(
+                f'''
+                <div style="background-color: {market_trend['color']}; padding: 15px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #ccc;">
+                    <h4 style="margin: 0; color: #333;">🧭 總體資金水位儀表板 ({market_ticker} {timeframe_option})</h4>
+                    <p style="margin: 5px 0 0 0; font-size: 18px; font-weight: bold; color: #333;">狀態：{market_trend['status']}</p>
+                    <p style="margin: 5px 0 0 0; color: #555;">💡 建議：{market_trend['advice']}</p>
+                </div>
+                ''', unsafe_allow_html=True
+            )
+        else:
+            st.warning(f"⚠️ 無法取得 {market_ticker} 的資料，請確認代碼是否正確。")
+
+    # ⭐️ 補回漏掉的臨時標的快速分析
+    st.divider()
+    st.subheader("🔍 臨時標的快速分析")
+    col_t1, col_t2, col_t3 = st.columns([2, 2, 2])
+    with col_t1:
+        st.text_input("輸入代碼 (例：2317.TW)", key="search_ticker", on_change=update_selected_from_search)
+    with col_t2:
+        st.text_input("輸入名稱 (選填，例：鴻海)", key="search_name", on_change=update_other_inputs)
+
+    temp_ticker = st.session_state.search_ticker.strip().upper()
+    temp_name = st.session_state.search_name.strip()
+
+    if temp_ticker:
+        disp_name = temp_name if temp_name else temp_ticker
+        temp_dict = {temp_ticker: disp_name}
+        with st.spinner(f"正在分析 {temp_ticker}..."):
+            temp_df = analyze_signals(tf_interval, tf_period, ma_s_lbl, ma_l_lbl, temp_dict)
+            
+        if not temp_df.empty and "⚠️ 無資料" not in temp_df.iloc[0]['收盤價(漲跌)']:
+            st.dataframe(
+                style_dataframe(temp_df), 
+                use_container_width=True,
+                column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
+            )
+            with col_t3:
+                st.write("") 
+                st.write("")
+                if st.button("➕ 加入自選股"):
+                    if temp_ticker not in st.session_state.watchlist_text:
+                        st.session_state.watchlist_text += f"\n{temp_ticker},{disp_name}"
+                        st.rerun()
+                    else:
+                        st.warning("此標的已在您的自選股清單中。")
+        else:
+            st.error("無法取得該代碼資料，請確認代碼是否正確。")
+    st.divider()
+
+    display_df = analyze_signals(tf_interval, tf_period, ma_s_lbl, ma_l_lbl, WATCHLIST)
+    
     if not display_df.empty:
+        # ⭐️ 提取買賣區的股票並實裝紅框總結清單
+        df_buy_zone = display_df[display_df['建議'].str.contains("買入|醞釀向上", na=False)]
+        df_sell_zone = display_df[display_df['建議'].str.contains("賣出|醞釀向下|避免殺低", na=False)]
+        
+        buy_list_str = ", ".join(df_buy_zone['代碼'].tolist()) if not df_buy_zone.empty else "無"
+        sell_list_str = ", ".join(df_sell_zone['代碼'].tolist()) if not df_sell_zone.empty else "無"
+        
+        st.markdown(
+            f'''
+            <div style="padding: 10px; border-radius: 5px; background-color: #f9f9f9; border: 1px solid #ddd; margin-bottom: 20px;">
+                <span style="color: #2e7d32; font-weight: bold; font-size: 16px;">🟢 買入戰情室：</span> <span style="font-size: 15px;">{buy_list_str}</span> <br><br>
+                <span style="color: #c62828; font-weight: bold; font-size: 16px;">🔴 賣出防守線：</span> <span style="font-size: 15px;">{sell_list_str}</span>
+            </div>
+            ''', 
+            unsafe_allow_html=True
+        )
+
         st.subheader(f"📊 自選股狀態總覽 ({timeframe_option})")
         
-        # ⭐️ 還原：完整保留原有的快速篩選按鈕
+        # ⭐️ 還原原本的過濾按鈕與表格
         filter_opt = st.radio(
             "🔍 快速篩選：", 
             ["👀 顯示全部", "🟢 只看買入", "💡 醞釀向上", "⚠️ 醞釀向下", "🟡 避免殺低", "🔴 只看賣出", "⚡ 剛發生交叉"], 
-            index=2,
+            index=0,
             horizontal=True
         )
         
@@ -482,9 +673,7 @@ with tab_dashboard:
                 use_container_width=True,
                 on_select="rerun",          
                 selection_mode="single-row",
-                column_config={
-                    "Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")
-                }
+                column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
             )
             if display_event.selection.rows:
                 selected_row_idx = display_event.selection.rows[0]
@@ -508,7 +697,7 @@ with tab_dashboard:
                         else:
                             st.error("無法取得回測資料。")
 
-    # --- 互動 K 線圖區塊 (保留在看盤儀表板底部) ---
+    # --- 互動 K 線圖區塊 ---
     st.divider()
     st.subheader("📉 價量與指標複合分析圖")
 
@@ -626,77 +815,8 @@ with tab_dashboard:
             else:
                 st.warning("⚠️ 無法取得該標的的 K 線圖資料，請確認代碼是否正確。")
 
-    @st.cache_data(ttl=86400)
-    def calculate_win_rate(ticker, name, interval):
-        try:
-            df = yf.download(ticker, period="1y", interval=interval, progress=False)
-            if df.empty or len(df) < 35: return None
-            
-            df_w = yf.download(ticker, period="2y", interval="1wk", progress=False)
-            
-            close = df['Close'][ticker] if isinstance(df.columns, pd.MultiIndex) else df['Close']
-            volume = df['Volume'][ticker] if isinstance(df.columns, pd.MultiIndex) else df['Volume']
-            close = close.dropna()
-            volume = volume.dropna()
-            
-            close_w = df_w['Close'][ticker] if isinstance(df_w.columns, pd.MultiIndex) else df_w['Close']
-            close_w = close_w.dropna()
-            ema12_w = close_w.ewm(span=12, adjust=False).mean()
-            ema26_w = close_w.ewm(span=26, adjust=False).mean()
-            dif_w = ema12_w - ema26_w
-            wdif_dec = (dif_w < dif_w.shift(1)).astype(int)
-            
-            if interval == '1d':
-                wdif_dec_daily = wdif_dec.reindex(close.index, method='ffill').fillna(0)
-            
-            ma5, ma10 = close.rolling(5).mean(), close.rolling(10).mean()
-            vol_ma5 = volume.rolling(5).mean()
-            
-            ema12, ema26 = close.ewm(span=12, adjust=False).mean(), close.ewm(span=26, adjust=False).mean()
-            dif = ema12 - ema26
-            dea = dif.ewm(span=9, adjust=False).mean()
-            hist = dif - dea 
-            
-            trades, wins = 0, 0
-            holding = False
-            buy_price = 0
-            
-            for i in range(20, len(close)):
-                curr_close = close.iloc[i]
-                curr_ma5, curr_ma10 = ma5.iloc[i], ma10.iloc[i]
-                curr_hist = hist.iloc[i]
-                curr_vol, curr_vol_ma5 = volume.iloc[i], vol_ma5.iloc[i]
-                
-                if interval == '1d':
-                    weekly_dif_decreasing = bool(wdif_dec_daily.iloc[i])
-                else:
-                    weekly_dif_decreasing = dif.iloc[i] < dif.iloc[i-1]
-                    
-                vol_condition = curr_vol > curr_vol_ma5
-                target_position = (50 if curr_hist > 0 else 0) + (50 if curr_ma5 > curr_ma10 else 0)
-                
-                if not holding and target_position == 100 and vol_condition:
-                    holding = True
-                    buy_price = curr_close
-                elif holding and target_position == 0 and weekly_dif_decreasing:
-                    holding = False
-                    trades += 1
-                    if curr_close > buy_price:
-                        wins += 1
-                        
-            win_rate = (wins / trades * 100) if trades > 0 else 0
-            return {
-                "代碼": ticker, 
-                "名稱": name,
-                "總交易次數": trades, 
-                "獲利次數": wins, 
-                "歷史勝率": f"{win_rate:.1f}%" if trades > 0 else "無交易紀錄"
-            }
-        except Exception:
-            return None
-
 # ==========================================
-# 分頁 4：買賣戰情室 (新增獨立頁面)
+# 分頁 4：買賣戰情室 (獨立頁面)
 # ==========================================
 with tab_war_room:
     st.subheader(f"⚔️ 買賣戰情室 ({timeframe_option})")
@@ -704,7 +824,6 @@ with tab_war_room:
     if display_df.empty:
         st.warning("⚠️ 自選股清單目前為空，請從『⚙️ 自選股編輯』分頁加入股票。")
     else:
-        # 分別抓出各類型的標的
         df_up = display_df[display_df['建議'].str.contains("醞釀向上", na=False)].reset_index(drop=True)
         df_buy = display_df[display_df['建議'].str.contains("買入", na=False)].reset_index(drop=True)
         
@@ -715,7 +834,6 @@ with tab_war_room:
         count_buy_zone = len(df_up) + len(df_buy)
         count_sell_zone = len(df_down) + len(df_sell) + len(df_hold)
         
-        # 建立戰情室專屬的買入與賣出子分頁
         sub_tab_buy, sub_tab_sell = st.tabs([f"🟢 買入戰情室 ({count_buy_zone})", f"🔴 賣出防守線 ({count_sell_zone})"])
         
         with sub_tab_buy:
