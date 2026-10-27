@@ -637,15 +637,14 @@ with tab_dashboard:
             st.subheader(f"📊 自選股狀態總覽 ({timeframe_option})")
             
         with col_hdr2:
-            # ⭐️ 更新右上角的總結清單，改為顯示戰情室與防守線的所有標的聯集
             buy_list_str = ", ".join(df_buy_zone['代碼'].tolist()) if not df_buy_zone.empty else "無"
             sell_list_str = ", ".join(df_sell_zone['代碼'].tolist()) if not df_sell_zone.empty else "無"
             
             st.markdown(
                 f'''
                 <div style="padding-top: 15px; text-align: right; font-size: 15px;">
-                    <span style="color: #2e7d32; font-weight: bold;">🟢 買入戰情室：</span> {buy_list_str} &nbsp;&nbsp;|&nbsp;&nbsp; 
-                    <span style="color: #c62828; font-weight: bold;">🔴 賣出防守線：</span> {sell_list_str}
+                    <span style="color: #2e7d32; font-weight: bold;">🟢 買入標的：</span> {buy_list_str} &nbsp;&nbsp;|&nbsp;&nbsp; 
+                    <span style="color: #c62828; font-weight: bold;">🔴 賣出標的：</span> {sell_list_str}
                 </div>
                 ''', 
                 unsafe_allow_html=True
@@ -659,7 +658,6 @@ with tab_dashboard:
         
         # ⭐️ 買入戰情室：直接印出聯集大表
         with tab_buy_zone:
-            st.markdown("#### 🎯 本區標的包含：「💡 醞釀向上」與「🟢 買入」")
             if df_buy_zone.empty: 
                 st.info("目前無買入或醞釀向上的標的。")
             else:
@@ -676,7 +674,6 @@ with tab_dashboard:
 
         # ⭐️ 賣出防守線：直接印出聯集大表
         with tab_sell_zone:
-            st.markdown("#### 🛡️ 本區標的包含：「⚠️ 醞釀向下」、「🔴 賣出」與「🟡 避免殺低」")
             if df_sell_zone.empty: 
                 st.info("目前無賣出、醞釀向下或需避免殺低的標的。")
             else:
