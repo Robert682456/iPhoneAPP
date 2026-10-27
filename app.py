@@ -135,20 +135,15 @@ with tab_rules:
     2. **逆勢超跌買點 (爆量 + RSI 雙濾網)**：跌破 LCL (20MA-2σ)，成交量大於 5日均量 2 倍，且 RSI(14) < 30。
 
     ### 💡 雙向預警雷達 (提早抓轉折)
-    - **💡 醞釀向上 (主力打底區)**：MACD 綠柱縮減且股價站上 5MA；或 RSI(14) ≤ 35。強烈建議列入買進觀察清單。
+    - **💡 醞釀向上 (主力打底區)**：MACD 綠柱縮減且股價站上 5MA；或 RSI(14) ≤ 35。
     - **⚠️ 醞釀向下 (提防見頂)**：(需滿足 **週線 DIF 下降** 前提) MACD 紅柱縮減且股價跌破 5MA；或 RSI(14) ≥ 70。
 
     ---
 
-    ### 🔴 賣出與防守標準 (需先滿足「大格局前提」)
-    - **前提條件**：當週 MACD 的 DIF 值 < 前一週 DIF 值 (代表長線動能確實開始衰退)。
-    
-    只有在上述前提下，若滿足以下任一條件即觸發賣出/警戒：
-    1. **動能轉弱 (MACD 死叉)**：日線 MACD 柱狀圖由紅翻綠 (MACD < 0)。
-    2. **趨勢跌破 (均線死叉)**：日線 5MA 跌破 10MA。
-    3. **極端超漲 (SPC 管制上限)**：股價突破 UCL 管制上限 (20MA + 2σ)。
-    
-    *(註：若週線 DIF 仍在上升，即使日線觸及上述條件，系統也會視為「動能延續的洗盤」而暫緩防守)*
+    ### 🔴 賣出防守與「避免殺低」原則
+    - **賣出前提**：當週 MACD 的 DIF 值 < 前一週 DIF 值 (代表長線動能確實衰退)。
+    - 若滿足賣出前提，且發生日線死叉，系統會建議「🔴 賣出」。
+    - **🟡 避免殺低防護網 (極重要)**：若已滿足賣出條件，但股價**已跌破 LCL 下軌** 或 **RSI(14) ≤ 30**，代表短線乖離過大。此時系統會強制攔截賣出訊號，改為提示**「🟡 避免殺低」**，提醒您切勿砍在阿呆谷，應等待技術性反彈再現。
     """)
 
 # ==========================================
@@ -250,7 +245,6 @@ with tab_dashboard:
                 curr_dif = dif.iloc[-1]
                 prev_dif = dif.iloc[-2]
                 
-                # 初始化週線 DIF 下降變數與數值
                 weekly_dif_decreasing = False
                 curr_dif_w_val = 0.0
                 prev_dif_w_val = 0.0
@@ -315,7 +309,6 @@ with tab_dashboard:
                         dif_w = ema12_w - ema26_w
                         hist_w = dif_w - dif_w.ewm(span=9, adjust=False).mean()
                         
-                        # ⭐️ 在日線模式下，提取真實的「週線 DIF 是否下降」與「具體數值」
                         if len(dif_w) >= 2:
                             curr_dif_w_val = dif_w.iloc[-1]
                             prev_dif_w_val = dif_w.iloc[-2]
@@ -354,7 +347,7 @@ with tab_dashboard:
                         else:
                             daily_status = "🟡日線方向分歧"
 
-                # ⭐️ 順勢基礎判定 (加入週線 DIF 下降數值追蹤)
+                # ⭐️ 基礎判定 (加入「避免殺低」覆蓋邏輯)
                 if target_position == 100:
                     if vol_condition:
                         if interval == "1d" and not is_weekly_bullish:
@@ -369,26 +362,31 @@ with tab_dashboard:
                         detail_reason = f"【量能不足】{macd_text} 且 {ma_text}，量縮觀望"
                 elif target_position == 0:
                     if weekly_dif_decreasing:
-                        rec_text = "🔴 賣出"
-                        detail_reason = f"【雙空頭】週線DIF下降(由 {prev_dif_w_val:.2f} 降至 {curr_dif_w_val:.2f})且 {macd_text} 且 {ma_text}，建議出場"
+                        # 💡 新增：跌深免死金牌 (避免殺低)
+                        if curr_rsi <= 30 or curr_close <= curr_lcl:
+                            rec_text = "🟡 避免殺低"
+                            detail_reason = f"【乖離過大】雖然週線DIF下降且已破線，但股價跌破LCL或RSI極度超賣({curr_rsi:.1f})，切勿在此恐慌殺低，請等待反彈再處理。"
+                        else:
+                            rec_text = "🔴 賣出"
+                            detail_reason = f"【雙空頭】週線DIF下降(由 {prev_dif_w_val:.2f} 降至 {curr_dif_w_val:.2f})且 {macd_text} 且 {ma_text}，建議出場。"
                     else:
                         rec_text = "🟡 觀察"
-                        detail_reason = f"【防守延遲】{macd_text} 且 {ma_text}，但週線DIF仍上升，暫緩賣出"
+                        detail_reason = f"【防守延遲】{macd_text} 且 {ma_text}，但週線DIF仍上升，暫緩賣出。"
                 else:
                     rec_text = "🟡 觀察"
                     if not weekly_dif_decreasing and curr_hist < 0:
-                        detail_reason = f"【方向分歧】指標偏空，但週線DIF仍上升，暫緩防守"
+                        detail_reason = f"【方向分歧】指標偏空，但週線DIF仍上升，暫緩防守。"
                     else:
-                        detail_reason = f"【方向分歧】{macd_text} 但 {ma_text}，指標未同步"
+                        detail_reason = f"【方向分歧】{macd_text} 但 {ma_text}，指標未同步。"
 
-                # 雙向預警雷達 (覆蓋邏輯)
-                if "買入" not in rec_text:
+                # 雙向預警雷達 (若尚未滿足買賣條件)
+                if "買入" not in rec_text and "賣出" not in rec_text and "殺低" not in rec_text:
                     if weekly_dif_decreasing and curr_rsi >= 70:
                         rec_text = "⚠️ 醞釀向下"
                         detail_reason = f"【逼近超買】週線DIF下降(由 {prev_dif_w_val:.2f} 降至 {curr_dif_w_val:.2f})且RSI達高檔 ({curr_rsi:.1f})，極度貪婪隨時面臨下修。"
                     elif weekly_dif_decreasing and curr_hist > 0 and curr_hist < prev_hist and curr_close < curr_ma5:
                         rec_text = "⚠️ 醞釀向下"
-                        detail_reason = f"【動能衰退】MACD紅柱縮減且週線DIF下降(由 {prev_dif_w_val:.2f} 降至 {curr_dif_w_val:.2f})，多方推升無力提防見頂。"
+                        detail_reason = f"【動能衰退】MACD紅柱縮減且週線DIF下降，多方推升無力提防見頂。"
                     elif curr_rsi <= 35:
                         rec_text = "💡 醞釀向上"
                         detail_reason = f"【逼近超賣】RSI降至低檔 ({curr_rsi:.1f})，隨時可能觸發技術性反彈。"
@@ -397,7 +395,7 @@ with tab_dashboard:
                         detail_reason = f"【動能收斂】MACD綠柱縮減且站上5MA，空方力竭準備打底。"
 
                 # 追蹤附帶說明
-                if interval == "1wk" and daily_status and "觀察" not in rec_text and "醞釀" not in rec_text:
+                if interval == "1wk" and daily_status and "觀察" not in rec_text and "醞釀" not in rec_text and "殺低" not in rec_text:
                     if "買入" in daily_status:
                         detail_reason += f" 👉 找買點：{daily_status}"
                     elif "賣出" in daily_status:
@@ -405,7 +403,7 @@ with tab_dashboard:
                     else:
                         detail_reason += f" 👉 短線動態：{daily_status}"
 
-                # SPC 爆量止跌 + RSI 雙重防護邏輯 (最高優先級)
+                # SPC 爆量止跌 + RSI 雙重防護邏輯 (最高優先級，可覆蓋前面所有邏輯)
                 if curr_close <= curr_lcl:
                     if curr_vol > curr_vol_ma5 * 2 and curr_rsi < 30:
                         rec_text = "🟢 逢低買入"
@@ -444,9 +442,10 @@ with tab_dashboard:
                 if "買入" in row['建議']: return 1  
                 elif "醞釀向上" in row['建議']: return 2
                 elif "醞釀向下" in row['建議']: return 3
-                elif "🔴 賣出" in row['建議']: return 4
+                elif "避免殺低" in row['建議']: return 4 # 優先於觀察與賣出
                 elif "觀察" in row['建議']: return 5
-                else: return 6
+                elif "🔴 賣出" in row['建議']: return 6
+                else: return 7
             df_results['SortRank'] = df_results.apply(get_sort_rank, axis=1)
             df_results = df_results.sort_values(by=['SortRank', '代碼']).drop(columns=['SortRank']).reset_index(drop=True)
             
@@ -458,7 +457,6 @@ with tab_dashboard:
             df = yf.download(ticker, period="1y", interval=interval, progress=False)
             if df.empty or len(df) < 35: return None
             
-            # 回測時為取得週線 DIF 減少值，抓取週線資料
             df_w = yf.download(ticker, period="2y", interval="1wk", progress=False)
             
             close = df['Close'][ticker] if isinstance(df.columns, pd.MultiIndex) else df['Close']
@@ -474,7 +472,6 @@ with tab_dashboard:
             wdif_dec = (dif_w < dif_w.shift(1)).astype(int)
             
             if interval == '1d':
-                # 將週線訊號向前填充映射到日線日期上
                 wdif_dec_daily = wdif_dec.reindex(close.index, method='ffill').fillna(0)
             
             ma5, ma10 = close.rolling(5).mean(), close.rolling(10).mean()
@@ -495,7 +492,6 @@ with tab_dashboard:
                 curr_hist = hist.iloc[i]
                 curr_vol, curr_vol_ma5 = volume.iloc[i], vol_ma5.iloc[i]
                 
-                # 回測時帶入週線 DIF 下降的前提
                 if interval == '1d':
                     weekly_dif_decreasing = bool(wdif_dec_daily.iloc[i])
                 else:
@@ -631,9 +627,10 @@ with tab_dashboard:
     if not display_df.empty:
         st.subheader(f"📊 自選股狀態總覽 ({timeframe_option})")
         
+        # ⭐️ 篩選器加入了「避免殺低」按鈕
         filter_opt = st.radio(
             "🔍 快速篩選：", 
-            ["👀 顯示全部", "🟢 只看買入", "💡 醞釀向上", "⚠️ 醞釀向下", "🔴 只看賣出", "⚡ 剛發生交叉"], 
+            ["👀 顯示全部", "🟢 只看買入", "💡 醞釀向上", "⚠️ 醞釀向下", "🟡 避免殺低", "🔴 只看賣出", "⚡ 剛發生交叉"], 
             index=2,
             horizontal=True
         )
@@ -645,6 +642,8 @@ with tab_dashboard:
             filtered_df = filtered_df[filtered_df['建議'].str.contains("醞釀向上", na=False)]
         elif filter_opt == "⚠️ 醞釀向下":
             filtered_df = filtered_df[filtered_df['建議'].str.contains("醞釀向下", na=False)]
+        elif filter_opt == "🟡 避免殺低":
+            filtered_df = filtered_df[filtered_df['建議'].str.contains("避免殺低", na=False)]
         elif filter_opt == "🔴 只看賣出":
             filtered_df = filtered_df[filtered_df['建議'].str.contains("賣出", na=False)]
         elif filter_opt == "⚡ 剛發生交叉":
