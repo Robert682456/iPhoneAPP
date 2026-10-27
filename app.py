@@ -624,12 +624,9 @@ with tab_dashboard:
     display_df = analyze_signals(tf_interval, tf_period, ma_s_lbl, ma_l_lbl, WATCHLIST)
     
     if not display_df.empty:
-        st.subheader(f"📊 自選股狀態總覽 ({timeframe_option})")
-        
-        # ⭐️ 核心更新：先過濾出各分類的 DataFrame 以計算正確數量
+        # ⭐️ 核心更新：過濾出各分類的 DataFrame
         df_up = display_df[display_df['建議'].str.contains("醞釀向上", na=False)].reset_index(drop=True)
         df_buy = display_df[display_df['建議'].str.contains("買入", na=False)].reset_index(drop=True)
-        
         df_down = display_df[display_df['建議'].str.contains("醞釀向下", na=False)].reset_index(drop=True)
         df_sell = display_df[display_df['建議'].str.contains("賣出", na=False)].reset_index(drop=True)
         df_hold = display_df[display_df['建議'].str.contains("避免殺低", na=False)].reset_index(drop=True)
@@ -637,6 +634,25 @@ with tab_dashboard:
         count_buy_zone = len(df_up) + len(df_buy)
         count_sell_zone = len(df_down) + len(df_sell) + len(df_hold)
         count_all_zone = len(display_df)
+
+        col_hdr1, col_hdr2 = st.columns([1.5, 2])
+        with col_hdr1:
+            st.subheader(f"📊 自選股狀態總覽 ({timeframe_option})")
+            
+        with col_hdr2:
+            # ⭐️ 提取買入與賣出的股票代碼捷徑，顯示於右側標題旁
+            buy_list_str = ", ".join(df_buy['代碼'].tolist()) if not df_buy.empty else "無"
+            sell_list_str = ", ".join(df_sell['代碼'].tolist()) if not df_sell.empty else "無"
+            
+            st.markdown(
+                f'''
+                <div style="padding-top: 15px; text-align: right; font-size: 15px;">
+                    <span style="color: #2e7d32; font-weight: bold;">🟢 買入標的：</span> {buy_list_str} &nbsp;&nbsp;|&nbsp;&nbsp; 
+                    <span style="color: #c62828; font-weight: bold;">🔴 賣出標的：</span> {sell_list_str}
+                </div>
+                ''', 
+                unsafe_allow_html=True
+            )
         
         # 將統計數量直接顯示在分頁標題上
         tab_buy_zone, tab_sell_zone, tab_all_zone = st.tabs([
@@ -707,6 +723,7 @@ with tab_dashboard:
                 if ev_all.selection.rows:
                     st.session_state.selected_ticker = filtered_df.iloc[ev_all.selection.rows[0]]['代碼']
         
+        # 將回測模組移至分頁下方共用區域
         buy_df = display_df[display_df['建議'].str.contains("買入", na=False)]
         with st.expander("📊 計算『買入』標的歷史勝率 (近一年回測)"):
             if st.button("🚀 執行歷史回測"):
