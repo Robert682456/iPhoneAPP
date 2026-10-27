@@ -148,6 +148,399 @@ with tab_rules:
     """)
 
 # ==========================================
+# 核心函數定義區
+# ==========================================
+@st.cache_data(ttl=300)
+def get_market_trend(ticker, interval, period):
+    try:
+        df = yf.download(ticker, period=period, interval=interval, progress=False)
+        if df.empty: return None
+        
+        close = df['Close'][ticker] if isinstance(df.columns, pd.MultiIndex) else df['Close']
+        close = close.dropna()
+        
+        ema12, ema26 = close.ewm(span=12, adjust=False).mean(), close.ewm(span=26, adjust=False).mean()
+        dif = ema12 - ema26
+        dea = dif.ewm(span=9, adjust=False).mean()
+        hist = dif - dea 
+        
+        curr_hist, prev_hist = hist.iloc[-1], hist.iloc[-2]
+        
+        if curr_hist > 0 and curr_hist > prev_hist:
+            return {"status": "🟢 多頭擴張", "advice": "大盤趨勢向上，操作部位可適度放大至 80%~100%。", "color": "#e8f5e9"}
+        elif curr_hist > 0 and curr_hist <= prev_hist:
+            return {"status": "🟡 高檔震盪 (柱狀收斂)", "advice": "大盤動能減弱，維持現有持股，新部位需嚴格挑選帶量突破標的。", "color": "#fff8e1"}
+        elif curr_hist < 0 and curr_hist > prev_hist:
+            return {"status": "🟡 跌深反彈 (水下金叉)", "advice": "大盤有落底跡象，可以 30%~50% 資金小量試單，嚴設前低停損。", "color": "#fff8e1"}
+        else:
+            return {"status": "🔴 空頭發散", "advice": "大盤趨勢向下，建議縮小操作部位至 30% 以下，多看少做保本為主。", "color": "#ffebee"}
+    except Exception:
+        return None
+
+@st.cache_data(ttl=300)
+def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
+    results = []
+    for ticker, name in watchlist.items():
+        try:
+            df = yf.download(ticker, period=period, interval=interval, progress=False)
+            if df.empty or len(df) < 35:
+                results.append({
+                    "代碼": ticker, "名稱": name, "收盤價(漲跌)": "⚠️ 無資料",
+                    "建議": "⚪ 未知", "最新動態": "-",
+                    "詳細判定原因": "無足夠 K 線資料，請檢查代碼格式",
+                    "Yahoo股市": f"https://finance.yahoo.com/quote/{ticker}"
+                })
+                continue
+            
+            close = df['Close'][ticker] if isinstance(df.columns, pd.MultiIndex) else df['Close']
+            volume = df['Volume'][ticker] if isinstance(df.columns, pd.MultiIndex) else df['Volume']
+            close = close.dropna()
+            volume = volume.dropna()
+            
+            ma5, ma10, ma20 = close.rolling(5).mean(), close.rolling(10).mean(), close.rolling(20).mean()
+            vol_ma5 = volume.rolling(5).mean()
+            
+            ema12, ema26 = close.ewm(span=12, adjust=False).mean(), close.ewm(span=26, adjust=False).mean()
+            dif = ema12 - ema26
+            dea = dif.ewm(span=9, adjust=False).mean()
+            hist = dif - dea 
+            
+            delta = close.diff()
+            gain = delta.clip(lower=0)
+            loss = -1 * delta.clip(upper=0)
+            ema_gain = gain.ewm(com=13, adjust=False).mean()
+            ema_loss = loss.ewm(com=13, adjust=False).mean()
+            rs = ema_gain / ema_loss
+            rsi = 100 - (100 / (1 + rs))
+            curr_rsi = rsi.iloc[-1]
+            
+            curr_close, prev_close = close.iloc[-1], close.iloc[-2]
+            curr_ma5, curr_ma10 = ma5.iloc[-1], ma10.iloc[-1]
+            curr_ma20, prev_ma20 = ma20.iloc[-1], ma20.iloc[-2]
+            curr_hist = hist.iloc[-1]
+            prev_hist = hist.iloc[-2]
+            curr_vol, curr_vol_ma5 = volume.iloc[-1], vol_ma5.iloc[-1]
+            curr_dif = dif.iloc[-1]
+            prev_dif = dif.iloc[-2]
+            
+            weekly_dif_decreasing = False
+            curr_dif_w_val = 0.0
+            prev_dif_w_val = 0.0
+            
+            if interval == "1wk":
+                weekly_dif_decreasing = curr_dif < prev_dif
+                curr_dif_w_val = curr_dif
+                prev_dif_w_val = prev_dif
+
+            std20 = close.rolling(20).std()
+            ucl = ma20 + 2 * std20
+            lcl = ma20 - 2 * std20
+            curr_ucl = ucl.iloc[-1]
+            curr_lcl = lcl.iloc[-1]
+
+            vol_condition = curr_vol > curr_vol_ma5  
+            
+            change_pct = ((curr_close - prev_close) / prev_close) * 100
+            if change_pct > 0: price_display = f"🔺 {curr_close:.2f} (+{change_pct:.2f}%)"
+            elif change_pct < 0: price_display = f"🔻 {curr_close:.2f} ({change_pct:.2f}%)"
+            else: price_display = f"➖ {curr_close:.2f} (0.00%)"
+            
+            last_date_str = close.index[-1].strftime('%m/%d')
+            
+            actions = []
+            if interval == "1d" and prev_close <= prev_ma20 and curr_close > curr_ma20:
+                actions.append(f"日線突破20MA ({last_date_str})")
+            if prev_hist <= 0 and curr_hist > 0:
+                actions.append(f"MACD剛金叉 ({last_date_str})")
+            elif prev_hist >= 0 and curr_hist < 0:
+                actions.append(f"MACD剛死叉 ({last_date_str})")
+            if ma5.iloc[-2] <= ma10.iloc[-2] and curr_ma5 > curr_ma10:
+                actions.append(f"MA剛金叉 ({last_date_str})")
+            elif ma5.iloc[-2] >= ma10.iloc[-2] and curr_ma5 < curr_ma10:
+                actions.append(f"MA剛死叉 ({last_date_str})")
+                
+            target_position = (50 if curr_hist > 0 else 0) + (50 if curr_ma5 > curr_ma10 else 0)
+            
+            macd_sign = (hist > 0).astype(int)
+            macd_crosses = macd_sign.diff()[macd_sign.diff() != 0].dropna()
+            macd_date = macd_crosses.index[-1].strftime('%m/%d') if not macd_crosses.empty else "-"
+            
+            ma_sign = (ma5 > ma10).astype(int)
+            ma_crosses = ma_sign.diff()[ma_sign.diff() != 0].dropna()
+            ma_date = ma_crosses.index[-1].strftime('%m/%d') if not ma_crosses.empty else "-"
+
+            macd_text = f"MACD>0(自{macd_date})" if curr_hist > 0 else f"MACD<0(自{macd_date})"
+            ma_text = f"{ma_s_label}>{ma_l_label}(自{ma_date})" if curr_ma5 > curr_ma10 else f"{ma_s_label}<{ma_l_label}(自{ma_date})"
+            
+            is_weekly_bullish = True
+            weekly_status = ""
+            daily_status = ""
+            
+            if interval == "1d":
+                df_w = yf.download(ticker, period="2y", interval="1wk", progress=False)
+                if not df_w.empty and len(df_w) >= 35:
+                    close_w = df_w['Close'][ticker] if isinstance(df_w.columns, pd.MultiIndex) else df_w['Close']
+                    close_w = close_w.dropna()
+                    ma5_w, ma10_w = close_w.rolling(5).mean(), close_w.rolling(10).mean()
+                    ema12_w = close_w.ewm(span=12, adjust=False).mean()
+                    ema26_w = close_w.ewm(span=26, adjust=False).mean()
+                    dif_w = ema12_w - ema26_w
+                    hist_w = dif_w - dif_w.ewm(span=9, adjust=False).mean()
+                    
+                    if len(dif_w) >= 2:
+                        curr_dif_w_val = dif_w.iloc[-1]
+                        prev_dif_w_val = dif_w.iloc[-2]
+                        weekly_dif_decreasing = curr_dif_w_val < prev_dif_w_val
+                    
+                    if hist_w.iloc[-1] > 0 and ma5_w.iloc[-1] > ma10_w.iloc[-1]:
+                        is_weekly_bullish = True
+                        weekly_status = "週線長多"
+                    else:
+                        is_weekly_bullish = False
+                        weekly_status = "週線偏空"
+                        
+            elif interval == "1wk":
+                df_d = yf.download(ticker, period="1y", interval="1d", progress=False)
+                if not df_d.empty and len(df_d) >= 35:
+                    close_d = df_d['Close'][ticker] if isinstance(df_d.columns, pd.MultiIndex) else df_d['Close']
+                    vol_d = df_d['Volume'][ticker] if isinstance(df_d.columns, pd.MultiIndex) else df_d['Volume']
+                    close_d, vol_d = close_d.dropna(), vol_d.dropna()
+                    
+                    ma5_d, ma10_d = close_d.rolling(5).mean(), close_d.rolling(10).mean()
+                    vol_ma5_d = vol_d.rolling(5).mean()
+                    ema12_d = close_d.ewm(span=12, adjust=False).mean()
+                    ema26_d = close_d.ewm(span=26, adjust=False).mean()
+                    hist_d = (ema12_d - ema26_d) - (ema12_d - ema26_d).ewm(span=9, adjust=False).mean()
+                    
+                    curr_hist_d = hist_d.iloc[-1]
+                    curr_ma5_d, curr_ma10_d = ma5_d.iloc[-1], ma10_d.iloc[-1]
+                    
+                    if curr_hist_d > 0 and curr_ma5_d > curr_ma10_d:
+                        if vol_d.iloc[-1] > vol_ma5_d.iloc[-1]:
+                            daily_status = "🟢日線帶量買入"
+                        else:
+                            daily_status = "🟡日線量縮觀察"
+                    elif curr_hist_d <= 0 and curr_ma5_d <= curr_ma10_d:
+                        daily_status = "🔴日線雙空賣出"
+                    else:
+                        daily_status = "🟡日線方向分歧"
+
+            # 基礎判定 
+            if target_position == 100:
+                if vol_condition:
+                    if interval == "1d" and not is_weekly_bullish:
+                        rec_text = "🟡 觀察"
+                        detail_reason = f"【短多長空】日線翻多帶量，但{weekly_status}，反彈暫不進場"
+                    else:
+                        rec_text = "🟢 買入"
+                        resonance_text = " (長短線共振)" if interval == "1d" else ""
+                        detail_reason = f"【雙多頭+帶量】{macd_text} 且 {ma_text}，量>{ma_s_label}均量{resonance_text}"
+                else:
+                    rec_text = "🟡 觀察"
+                    detail_reason = f"【量能不足】{macd_text} 且 {ma_text}，量縮觀望"
+            elif target_position == 0:
+                if weekly_dif_decreasing:
+                    if curr_rsi <= 30 or curr_close <= curr_lcl:
+                        rec_text = "🟡 避免殺低"
+                        detail_reason = f"【乖離過大】雖週線DIF下降且已破線，但股價跌破LCL或RSI極度超賣({curr_rsi:.1f})，切勿恐慌殺低。 👉 預估初步反彈壓力：{ma_l_label} (約 {curr_ma10:.2f})"
+                    else:
+                        rec_text = "🔴 賣出"
+                        detail_reason = f"【雙空頭】週線DIF下降(由 {prev_dif_w_val:.2f} 降至 {curr_dif_w_val:.2f})且 {macd_text} 且 {ma_text}，建議出場。"
+                else:
+                    rec_text = "🟡 觀察"
+                    detail_reason = f"【防守延遲】{macd_text} 且 {ma_text}，但週線DIF仍上升，暫緩賣出。"
+            else:
+                rec_text = "🟡 觀察"
+                if not weekly_dif_decreasing and curr_hist < 0:
+                    detail_reason = f"【方向分歧】指標偏空，但週線DIF仍上升，暫緩防守。"
+                else:
+                    detail_reason = f"【方向分歧】{macd_text} 但 {ma_text}，指標未同步。"
+
+            # 雙向預警雷達
+            if "買入" not in rec_text and "賣出" not in rec_text and "殺低" not in rec_text:
+                if weekly_dif_decreasing and curr_rsi >= 70:
+                    rec_text = "⚠️ 醞釀向下"
+                    detail_reason = f"【逼近超買】週線DIF下降(由 {prev_dif_w_val:.2f} 降至 {curr_dif_w_val:.2f})且RSI達高檔 ({curr_rsi:.1f})，極度貪婪隨時面臨下修。"
+                elif weekly_dif_decreasing and curr_hist > 0 and curr_hist < prev_hist and curr_close < curr_ma5:
+                    rec_text = "⚠️ 醞釀向下"
+                    detail_reason = f"【動能衰退】MACD紅柱縮減且週線DIF下降(由 {prev_dif_w_val:.2f} 降至 {curr_dif_w_val:.2f})，多方推升無力提防見頂。"
+                elif curr_rsi <= 35:
+                    rec_text = "💡 醞釀向上"
+                    detail_reason = f"【逼近超賣】RSI降至低檔 ({curr_rsi:.1f})，隨時可能觸發技術性反彈。"
+                elif curr_hist < 0 and curr_hist > prev_hist and curr_close > curr_ma5:
+                    rec_text = "💡 醞釀向上"
+                    detail_reason = f"【動能收斂】MACD綠柱縮減且站上5MA，空方力竭準備打底。"
+
+            # 追蹤附帶說明
+            if interval == "1wk" and daily_status and "觀察" not in rec_text and "醞釀" not in rec_text and "殺低" not in rec_text:
+                if "買入" in daily_status:
+                    detail_reason += f" 👉 找買點：{daily_status}"
+                elif "賣出" in daily_status:
+                    detail_reason += f" 👉 找賣點：{daily_status}"
+                else:
+                    detail_reason += f" 👉 短線動態：{daily_status}"
+
+            # SPC 爆量止跌 + RSI 雙重防護邏輯
+            if curr_close <= curr_lcl:
+                if curr_vol > curr_vol_ma5 * 2 and curr_rsi < 30:
+                    rec_text = "🟢 逢低買入"
+                    detail_reason = f"【SPC極端超跌】跌破LCL、爆出2倍均量且RSI超賣({curr_rsi:.1f})，籌碼換手醞釀強彈！"
+                elif curr_vol > curr_vol_ma5 * 2:
+                    detail_reason += f" ⚠️ SPC警示：跌破LCL且爆量，但RSI未達超賣({curr_rsi:.1f})，動能尚未完全竭盡"
+                else:
+                    detail_reason += f" ⚠️ SPC警示：跌破LCL下軌，無爆量承接 (RSI:{curr_rsi:.1f})，提防陰跌探底"
+            elif curr_close >= curr_ucl:
+                if weekly_dif_decreasing:
+                    detail_reason += f" ⚠️ SPC警示：突破UCL上軌且週線DIF下降(由 {prev_dif_w_val:.2f} 降至 {curr_dif_w_val:.2f})，極端超漲提防拉回 (RSI:{curr_rsi:.1f})"
+                else:
+                    detail_reason += f" ⚠️ SPC警示：突破UCL上軌，但週線DIF仍上升，動能延續中 (RSI:{curr_rsi:.1f})"
+
+            results.append({
+                "代碼": ticker, 
+                "名稱": name, 
+                "收盤價(漲跌)": price_display,
+                "建議": rec_text,
+                "最新動態": " / ".join(actions) if actions else "-",
+                "詳細判定原因": detail_reason,
+                "Yahoo股市": f"https://finance.yahoo.com/quote/{ticker}"
+            })
+        except Exception: 
+            results.append({
+                "代碼": ticker, "名稱": name, "收盤價(漲跌)": "⚠️ 錯誤",
+                "建議": "⚪ 未知", "最新動態": "-",
+                "詳細判定原因": "抓取過程發生異常，請稍後刷新",
+                "Yahoo股市": f"https://finance.yahoo.com/quote/{ticker}"
+            })
+            continue
+        
+    df_results = pd.DataFrame(results)
+    if not df_results.empty:
+        def get_sort_rank(row):
+            if "買入" in row['建議']: return 1  
+            elif "醞釀向上" in row['建議']: return 2
+            elif "醞釀向下" in row['建議']: return 3
+            elif "避免殺低" in row['建議']: return 4 
+            elif "觀察" in row['建議']: return 5
+            elif "🔴 賣出" in row['建議']: return 6
+            else: return 7
+        df_results['SortRank'] = df_results.apply(get_sort_rank, axis=1)
+        df_results = df_results.sort_values(by=['SortRank', '代碼']).drop(columns=['SortRank']).reset_index(drop=True)
+        
+    return df_results
+
+@st.cache_data(ttl=86400)
+def calculate_win_rate(ticker, name, interval):
+    try:
+        df = yf.download(ticker, period="1y", interval=interval, progress=False)
+        if df.empty or len(df) < 35: return None
+        
+        df_w = yf.download(ticker, period="2y", interval="1wk", progress=False)
+        
+        close = df['Close'][ticker] if isinstance(df.columns, pd.MultiIndex) else df['Close']
+        volume = df['Volume'][ticker] if isinstance(df.columns, pd.MultiIndex) else df['Volume']
+        close = close.dropna()
+        volume = volume.dropna()
+        
+        close_w = df_w['Close'][ticker] if isinstance(df_w.columns, pd.MultiIndex) else df_w['Close']
+        close_w = close_w.dropna()
+        ema12_w = close_w.ewm(span=12, adjust=False).mean()
+        ema26_w = close_w.ewm(span=26, adjust=False).mean()
+        dif_w = ema12_w - ema26_w
+        wdif_dec = (dif_w < dif_w.shift(1)).astype(int)
+        
+        if interval == '1d':
+            wdif_dec_daily = wdif_dec.reindex(close.index, method='ffill').fillna(0)
+        
+        ma5, ma10 = close.rolling(5).mean(), close.rolling(10).mean()
+        vol_ma5 = volume.rolling(5).mean()
+        
+        ema12, ema26 = close.ewm(span=12, adjust=False).mean(), close.ewm(span=26, adjust=False).mean()
+        dif = ema12 - ema26
+        dea = dif.ewm(span=9, adjust=False).mean()
+        hist = dif - dea 
+        
+        trades, wins = 0, 0
+        holding = False
+        buy_price = 0
+        
+        for i in range(20, len(close)):
+            curr_close = close.iloc[i]
+            curr_ma5, curr_ma10 = ma5.iloc[i], ma10.iloc[i]
+            curr_hist = hist.iloc[i]
+            curr_vol, curr_vol_ma5 = volume.iloc[i], vol_ma5.iloc[i]
+            
+            if interval == '1d':
+                weekly_dif_decreasing = bool(wdif_dec_daily.iloc[i])
+            else:
+                weekly_dif_decreasing = dif.iloc[i] < dif.iloc[i-1]
+                
+            vol_condition = curr_vol > curr_vol_ma5
+            target_position = (50 if curr_hist > 0 else 0) + (50 if curr_ma5 > curr_ma10 else 0)
+            
+            if not holding and target_position == 100 and vol_condition:
+                holding = True
+                buy_price = curr_close
+            elif holding and target_position == 0 and weekly_dif_decreasing:
+                holding = False
+                trades += 1
+                if curr_close > buy_price:
+                    wins += 1
+                    
+        win_rate = (wins / trades * 100) if trades > 0 else 0
+        return {
+            "代碼": ticker, 
+            "名稱": name,
+            "總交易次數": trades, 
+            "獲利次數": wins, 
+            "歷史勝率": f"{win_rate:.1f}%" if trades > 0 else "無交易紀錄"
+        }
+    except Exception:
+        return None
+
+def style_dataframe(df):
+    def color_trend(val):
+        if isinstance(val, str):
+            if '🔺' in val: return 'color: #ff4b4b; font-weight: bold;'
+            elif '🔻' in val: return 'color: #00c853; font-weight: bold;'
+            elif '⚠️' in val: return 'color: #f57c00; font-weight: bold;'
+        return ''
+    if hasattr(df.style, "map"): return df.style.map(color_trend, subset=['收盤價(漲跌)'])
+    else: return df.style.applymap(color_trend, subset=['收盤價(漲跌)'])
+
+@st.cache_data(ttl=300)
+def get_chart_data(ticker, interval, period):
+    df = yf.download(ticker, period=period, interval=interval, progress=False)
+    if df.empty: return None
+    if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
+    
+    df = df.dropna()
+    df['MA5'] = df['Close'].rolling(window=5).mean()
+    df['MA10'] = df['Close'].rolling(window=10).mean()
+    df['MA20'] = df['Close'].rolling(window=20).mean() 
+    df['Vol_MA5'] = df['Volume'].rolling(window=5).mean()
+    
+    df['STD20'] = df['Close'].rolling(window=20).std()
+    df['UCL'] = df['MA20'] + 2 * df['STD20']
+    df['LCL'] = df['MA20'] - 2 * df['STD20']
+
+    df['DIF'] = df['Close'].ewm(span=12, adjust=False).mean() - df['Close'].ewm(span=26, adjust=False).mean()
+    df['DEA'] = df['DIF'].ewm(span=9, adjust=False).mean()
+    df['MACD_Hist'] = df['DIF'] - df['DEA']
+    df['MACD_Color'] = ['#ef5350' if val > 0 else '#26a69a' for val in df['MACD_Hist']]
+    
+    delta = df['Close'].diff()
+    gain = delta.clip(lower=0)
+    loss = -1 * delta.clip(upper=0)
+    ema_gain = gain.ewm(com=13, adjust=False).mean()
+    ema_loss = loss.ewm(com=13, adjust=False).mean()
+    rs = ema_gain / ema_loss
+    df['RSI'] = 100 - (100 / (1 + rs))
+
+    df['Candle_Dir'] = df['Close'] >= df['Open']
+    df['Vol_Color'] = ['#ef5350' if d else '#26a69a' for d in df['Candle_Dir']]
+    return df
+
+# ==========================================
 # 分頁 1：主看盤儀表板 
 # ==========================================
 with tab_dashboard:
@@ -173,283 +566,7 @@ with tab_dashboard:
         ma_s_lbl = "5D"
         ma_l_lbl = "10D"
 
-    @st.cache_data(ttl=300)
-    def get_market_trend(ticker, interval, period):
-        try:
-            df = yf.download(ticker, period=period, interval=interval, progress=False)
-            if df.empty: return None
-            
-            close = df['Close'][ticker] if isinstance(df.columns, pd.MultiIndex) else df['Close']
-            close = close.dropna()
-            
-            ema12, ema26 = close.ewm(span=12, adjust=False).mean(), close.ewm(span=26, adjust=False).mean()
-            dif = ema12 - ema26
-            dea = dif.ewm(span=9, adjust=False).mean()
-            hist = dif - dea 
-            
-            curr_hist, prev_hist = hist.iloc[-1], hist.iloc[-2]
-            
-            if curr_hist > 0 and curr_hist > prev_hist:
-                return {"status": "🟢 多頭擴張", "advice": "大盤趨勢向上，操作部位可適度放大至 80%~100%。", "color": "#e8f5e9"}
-            elif curr_hist > 0 and curr_hist <= prev_hist:
-                return {"status": "🟡 高檔震盪 (柱狀收斂)", "advice": "大盤動能減弱，維持現有持股，新部位需嚴格挑選帶量突破標的。", "color": "#fff8e1"}
-            elif curr_hist < 0 and curr_hist > prev_hist:
-                return {"status": "🟡 跌深反彈 (水下金叉)", "advice": "大盤有落底跡象，可以 30%~50% 資金小量試單，嚴設前低停損。", "color": "#fff8e1"}
-            else:
-                return {"status": "🔴 空頭發散", "advice": "大盤趨勢向下，建議縮小操作部位至 30% 以下，多看少做保本為主。", "color": "#ffebee"}
-        except Exception:
-            return None
-
-    @st.cache_data(ttl=300)
-    def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
-        results = []
-        for ticker, name in watchlist.items():
-            try:
-                df = yf.download(ticker, period=period, interval=interval, progress=False)
-                if df.empty or len(df) < 35:
-                    results.append({
-                        "代碼": ticker, "名稱": name, "收盤價(漲跌)": "⚠️ 無資料",
-                        "建議": "⚪ 未知", "最新動態": "-",
-                        "詳細判定原因": "無足夠 K 線資料，請檢查代碼格式",
-                        "Yahoo股市": f"https://finance.yahoo.com/quote/{ticker}"
-                    })
-                    continue
-                
-                close = df['Close'][ticker] if isinstance(df.columns, pd.MultiIndex) else df['Close']
-                volume = df['Volume'][ticker] if isinstance(df.columns, pd.MultiIndex) else df['Volume']
-                close = close.dropna()
-                volume = volume.dropna()
-                
-                ma5, ma10, ma20 = close.rolling(5).mean(), close.rolling(10).mean(), close.rolling(20).mean()
-                vol_ma5 = volume.rolling(5).mean()
-                
-                ema12, ema26 = close.ewm(span=12, adjust=False).mean(), close.ewm(span=26, adjust=False).mean()
-                dif = ema12 - ema26
-                dea = dif.ewm(span=9, adjust=False).mean()
-                hist = dif - dea 
-                
-                delta = close.diff()
-                gain = delta.clip(lower=0)
-                loss = -1 * delta.clip(upper=0)
-                ema_gain = gain.ewm(com=13, adjust=False).mean()
-                ema_loss = loss.ewm(com=13, adjust=False).mean()
-                rs = ema_gain / ema_loss
-                rsi = 100 - (100 / (1 + rs))
-                curr_rsi = rsi.iloc[-1]
-                
-                curr_close, prev_close = close.iloc[-1], close.iloc[-2]
-                curr_ma5, curr_ma10 = ma5.iloc[-1], ma10.iloc[-1]
-                curr_ma20, prev_ma20 = ma20.iloc[-1], ma20.iloc[-2]
-                curr_hist = hist.iloc[-1]
-                prev_hist = hist.iloc[-2]
-                curr_vol, curr_vol_ma5 = volume.iloc[-1], vol_ma5.iloc[-1]
-                curr_dif = dif.iloc[-1]
-                prev_dif = dif.iloc[-2]
-                
-                weekly_dif_decreasing = False
-                curr_dif_w_val = 0.0
-                prev_dif_w_val = 0.0
-                
-                if interval == "1wk":
-                    weekly_dif_decreasing = curr_dif < prev_dif
-                    curr_dif_w_val = curr_dif
-                    prev_dif_w_val = prev_dif
-
-                std20 = close.rolling(20).std()
-                ucl = ma20 + 2 * std20
-                lcl = ma20 - 2 * std20
-                curr_ucl = ucl.iloc[-1]
-                curr_lcl = lcl.iloc[-1]
-
-                vol_condition = curr_vol > curr_vol_ma5  
-                
-                change_pct = ((curr_close - prev_close) / prev_close) * 100
-                if change_pct > 0: price_display = f"🔺 {curr_close:.2f} (+{change_pct:.2f}%)"
-                elif change_pct < 0: price_display = f"🔻 {curr_close:.2f} ({change_pct:.2f}%)"
-                else: price_display = f"➖ {curr_close:.2f} (0.00%)"
-                
-                last_date_str = close.index[-1].strftime('%m/%d')
-                
-                actions = []
-                if interval == "1d" and prev_close <= prev_ma20 and curr_close > curr_ma20:
-                    actions.append(f"日線突破20MA ({last_date_str})")
-                if prev_hist <= 0 and curr_hist > 0:
-                    actions.append(f"MACD剛金叉 ({last_date_str})")
-                elif prev_hist >= 0 and curr_hist < 0:
-                    actions.append(f"MACD剛死叉 ({last_date_str})")
-                if ma5.iloc[-2] <= ma10.iloc[-2] and curr_ma5 > curr_ma10:
-                    actions.append(f"MA剛金叉 ({last_date_str})")
-                elif ma5.iloc[-2] >= ma10.iloc[-2] and curr_ma5 < curr_ma10:
-                    actions.append(f"MA剛死叉 ({last_date_str})")
-                    
-                target_position = (50 if curr_hist > 0 else 0) + (50 if curr_ma5 > curr_ma10 else 0)
-                
-                macd_sign = (hist > 0).astype(int)
-                macd_crosses = macd_sign.diff()[macd_sign.diff() != 0].dropna()
-                macd_date = macd_crosses.index[-1].strftime('%m/%d') if not macd_crosses.empty else "-"
-                
-                ma_sign = (ma5 > ma10).astype(int)
-                ma_crosses = ma_sign.diff()[ma_sign.diff() != 0].dropna()
-                ma_date = ma_crosses.index[-1].strftime('%m/%d') if not ma_crosses.empty else "-"
-
-                macd_text = f"MACD>0(自{macd_date})" if curr_hist > 0 else f"MACD<0(自{macd_date})"
-                ma_text = f"{ma_s_label}>{ma_l_label}(自{ma_date})" if curr_ma5 > curr_ma10 else f"{ma_s_label}<{ma_l_label}(自{ma_date})"
-                
-                is_weekly_bullish = True
-                weekly_status = ""
-                daily_status = ""
-                
-                if interval == "1d":
-                    df_w = yf.download(ticker, period="2y", interval="1wk", progress=False)
-                    if not df_w.empty and len(df_w) >= 35:
-                        close_w = df_w['Close'][ticker] if isinstance(df_w.columns, pd.MultiIndex) else df_w['Close']
-                        close_w = close_w.dropna()
-                        ma5_w, ma10_w = close_w.rolling(5).mean(), close_w.rolling(10).mean()
-                        ema12_w = close_w.ewm(span=12, adjust=False).mean()
-                        ema26_w = close_w.ewm(span=26, adjust=False).mean()
-                        dif_w = ema12_w - ema26_w
-                        hist_w = dif_w - dif_w.ewm(span=9, adjust=False).mean()
-                        
-                        if len(dif_w) >= 2:
-                            curr_dif_w_val = dif_w.iloc[-1]
-                            prev_dif_w_val = dif_w.iloc[-2]
-                            weekly_dif_decreasing = curr_dif_w_val < prev_dif_w_val
-                        
-                        if hist_w.iloc[-1] > 0 and ma5_w.iloc[-1] > ma10_w.iloc[-1]:
-                            is_weekly_bullish = True
-                            weekly_status = "週線長多"
-                        else:
-                            is_weekly_bullish = False
-                            weekly_status = "週線偏空"
-                            
-                elif interval == "1wk":
-                    df_d = yf.download(ticker, period="1y", interval="1d", progress=False)
-                    if not df_d.empty and len(df_d) >= 35:
-                        close_d = df_d['Close'][ticker] if isinstance(df_d.columns, pd.MultiIndex) else df_d['Close']
-                        vol_d = df_d['Volume'][ticker] if isinstance(df_d.columns, pd.MultiIndex) else df_d['Volume']
-                        close_d, vol_d = close_d.dropna(), vol_d.dropna()
-                        
-                        ma5_d, ma10_d = close_d.rolling(5).mean(), close_d.rolling(10).mean()
-                        vol_ma5_d = vol_d.rolling(5).mean()
-                        ema12_d = close_d.ewm(span=12, adjust=False).mean()
-                        ema26_d = close_d.ewm(span=26, adjust=False).mean()
-                        hist_d = (ema12_d - ema26_d) - (ema12_d - ema26_d).ewm(span=9, adjust=False).mean()
-                        
-                        curr_hist_d = hist_d.iloc[-1]
-                        curr_ma5_d, curr_ma10_d = ma5_d.iloc[-1], ma10_d.iloc[-1]
-                        
-                        if curr_hist_d > 0 and curr_ma5_d > curr_ma10_d:
-                            if vol_d.iloc[-1] > vol_ma5_d.iloc[-1]:
-                                daily_status = "🟢日線帶量買入"
-                            else:
-                                daily_status = "🟡日線量縮觀察"
-                        elif curr_hist_d <= 0 and curr_ma5_d <= curr_ma10_d:
-                            daily_status = "🔴日線雙空賣出"
-                        else:
-                            daily_status = "🟡日線方向分歧"
-
-                # 基礎判定 
-                if target_position == 100:
-                    if vol_condition:
-                        if interval == "1d" and not is_weekly_bullish:
-                            rec_text = "🟡 觀察"
-                            detail_reason = f"【短多長空】日線翻多帶量，但{weekly_status}，反彈暫不進場"
-                        else:
-                            rec_text = "🟢 買入"
-                            resonance_text = " (長短線共振)" if interval == "1d" else ""
-                            detail_reason = f"【雙多頭+帶量】{macd_text} 且 {ma_text}，量>{ma_s_label}均量{resonance_text}"
-                    else:
-                        rec_text = "🟡 觀察"
-                        detail_reason = f"【量能不足】{macd_text} 且 {ma_text}，量縮觀望"
-                elif target_position == 0:
-                    if weekly_dif_decreasing:
-                        if curr_rsi <= 30 or curr_close <= curr_lcl:
-                            rec_text = "🟡 避免殺低"
-                            detail_reason = f"【乖離過大】雖週線DIF下降且已破線，但股價跌破LCL或RSI極度超賣({curr_rsi:.1f})，切勿恐慌殺低。 👉 預估初步反彈壓力：{ma_l_label} (約 {curr_ma10:.2f})"
-                        else:
-                            rec_text = "🔴 賣出"
-                            detail_reason = f"【雙空頭】週線DIF下降(由 {prev_dif_w_val:.2f} 降至 {curr_dif_w_val:.2f})且 {macd_text} 且 {ma_text}，建議出場。"
-                    else:
-                        rec_text = "🟡 觀察"
-                        detail_reason = f"【防守延遲】{macd_text} 且 {ma_text}，但週線DIF仍上升，暫緩賣出。"
-                else:
-                    rec_text = "🟡 觀察"
-                    if not weekly_dif_decreasing and curr_hist < 0:
-                        detail_reason = f"【方向分歧】指標偏空，但週線DIF仍上升，暫緩防守。"
-                    else:
-                        detail_reason = f"【方向分歧】{macd_text} 但 {ma_text}，指標未同步。"
-
-                # 雙向預警雷達
-                if "買入" not in rec_text and "賣出" not in rec_text and "殺低" not in rec_text:
-                    if weekly_dif_decreasing and curr_rsi >= 70:
-                        rec_text = "⚠️ 醞釀向下"
-                        detail_reason = f"【逼近超買】週線DIF下降(由 {prev_dif_w_val:.2f} 降至 {curr_dif_w_val:.2f})且RSI達高檔 ({curr_rsi:.1f})，極度貪婪隨時面臨下修。"
-                    elif weekly_dif_decreasing and curr_hist > 0 and curr_hist < prev_hist and curr_close < curr_ma5:
-                        rec_text = "⚠️ 醞釀向下"
-                        detail_reason = f"【動能衰退】MACD紅柱縮減且週線DIF下降(由 {prev_dif_w_val:.2f} 降至 {curr_dif_w_val:.2f})，多方推升無力提防見頂。"
-                    elif curr_rsi <= 35:
-                        rec_text = "💡 醞釀向上"
-                        detail_reason = f"【逼近超賣】RSI降至低檔 ({curr_rsi:.1f})，隨時可能觸發技術性反彈。"
-                    elif curr_hist < 0 and curr_hist > prev_hist and curr_close > curr_ma5:
-                        rec_text = "💡 醞釀向上"
-                        detail_reason = f"【動能收斂】MACD綠柱縮減且站上5MA，空方力竭準備打底。"
-
-                # 追蹤附帶說明
-                if interval == "1wk" and daily_status and "觀察" not in rec_text and "醞釀" not in rec_text and "殺低" not in rec_text:
-                    if "買入" in daily_status:
-                        detail_reason += f" 👉 找買點：{daily_status}"
-                    elif "賣出" in daily_status:
-                        detail_reason += f" 👉 找賣點：{daily_status}"
-                    else:
-                        detail_reason += f" 👉 短線動態：{daily_status}"
-
-                # SPC 爆量止跌 + RSI 雙重防護邏輯
-                if curr_close <= curr_lcl:
-                    if curr_vol > curr_vol_ma5 * 2 and curr_rsi < 30:
-                        rec_text = "🟢 逢低買入"
-                        detail_reason = f"【SPC極端超跌】跌破LCL、爆出2倍均量且RSI超賣({curr_rsi:.1f})，籌碼換手醞釀強彈！"
-                    elif curr_vol > curr_vol_ma5 * 2:
-                        detail_reason += f" ⚠️ SPC警示：跌破LCL且爆量，但RSI未達超賣({curr_rsi:.1f})，動能尚未完全竭盡"
-                    else:
-                        detail_reason += f" ⚠️ SPC警示：跌破LCL下軌，無爆量承接 (RSI:{curr_rsi:.1f})，提防陰跌探底"
-                elif curr_close >= curr_ucl:
-                    if weekly_dif_decreasing:
-                        detail_reason += f" ⚠️ SPC警示：突破UCL上軌且週線DIF下降(由 {prev_dif_w_val:.2f} 降至 {curr_dif_w_val:.2f})，極端超漲提防拉回 (RSI:{curr_rsi:.1f})"
-                    else:
-                        detail_reason += f" ⚠️ SPC警示：突破UCL上軌，但週線DIF仍上升，動能延續中 (RSI:{curr_rsi:.1f})"
-
-                results.append({
-                    "代碼": ticker, 
-                    "名稱": name, 
-                    "收盤價(漲跌)": price_display,
-                    "建議": rec_text,
-                    "最新動態": " / ".join(actions) if actions else "-",
-                    "詳細判定原因": detail_reason,
-                    "Yahoo股市": f"https://finance.yahoo.com/quote/{ticker}"
-                })
-            except Exception: 
-                results.append({
-                    "代碼": ticker, "名稱": name, "收盤價(漲跌)": "⚠️ 錯誤",
-                    "建議": "⚪ 未知", "最新動態": "-",
-                    "詳細判定原因": "抓取過程發生異常，請稍後刷新",
-                    "Yahoo股市": f"https://finance.yahoo.com/quote/{ticker}"
-                })
-                continue
-            
-        display_df = pd.DataFrame(results)
-        if not display_df.empty:
-            def get_sort_rank(row):
-                if "買入" in row['建議']: return 1  
-                elif "醞釀向上" in row['建議']: return 2
-                elif "醞釀向下" in row['建議']: return 3
-                elif "避免殺低" in row['建議']: return 4 
-                elif "觀察" in row['建議']: return 5
-                elif "🔴 賣出" in row['建議']: return 6
-                else: return 7
-            display_df['SortRank'] = display_df.apply(get_sort_rank, axis=1)
-            display_df = display_df.sort_values(by=['SortRank', '代碼']).drop(columns=['SortRank']).reset_index(drop=True)
-            
-    # ⭐️ 補回漏掉的總體資金水位儀表板
+    # ⭐️ 總體資金水位儀表板 (還原保留)
     market_ticker = st.text_input("📊 設定總體資金水位參考標的 (預設 0050.TW)：", key="market_ticker_input", on_change=update_other_inputs).strip().upper()
     with st.spinner(f"運算 {market_ticker} 總體指標中..."):
         market_trend = get_market_trend(market_ticker, tf_interval, tf_period)
@@ -466,7 +583,7 @@ with tab_dashboard:
         else:
             st.warning(f"⚠️ 無法取得 {market_ticker} 的資料，請確認代碼是否正確。")
 
-    # ⭐️ 補回漏掉的臨時標的快速分析
+    # ⭐️ 臨時標的快速分析 (還原保留，此區塊非常重要，提供 temp_ticker 給後續 K 線圖使用)
     st.divider()
     st.subheader("🔍 臨時標的快速分析")
     col_t1, col_t2, col_t3 = st.columns([2, 2, 2])
@@ -503,23 +620,28 @@ with tab_dashboard:
             st.error("無法取得該代碼資料，請確認代碼是否正確。")
     st.divider()
 
+    # 運算主清單
+    display_df = analyze_signals(tf_interval, tf_period, ma_s_lbl, ma_l_lbl, WATCHLIST)
+    
     if not display_df.empty:
-        # ⭐️ 將總結清單放在與「自選股狀態總覽」標題同一行 (完全符合附件8與附件9)
-        col_hdr1, col_hdr2 = st.columns([1.2, 3])
+        # ⭐️ 將總結清單放在與「自選股狀態總覽」標題同一行 (完全符合附件1、附件2的要求)
+        col_hdr1, col_hdr2 = st.columns([1.5, 3])
         with col_hdr1:
             st.subheader(f"📊 自選股狀態總覽 ({timeframe_option})")
         with col_hdr2:
+            # 抓出符合條件的標的組合字串
             df_buy_zone = display_df[display_df['建議'].str.contains("買入|醞釀向上", na=False)]
             df_sell_zone = display_df[display_df['建議'].str.contains("賣出|醞釀向下|避免殺低", na=False)]
             
             buy_list_str = ", ".join(df_buy_zone['代碼'].tolist()) if not df_buy_zone.empty else "無"
             sell_list_str = ", ".join(df_sell_zone['代碼'].tolist()) if not df_sell_zone.empty else "無"
             
+            # 使用 markdown 印出如附件2紅框內的清單樣式
             st.markdown(
                 f'''
                 <div style="padding-top: 25px; text-align: right; font-size: 14px;">
-                    <span style="color: #2e7d32; font-weight: bold;">🟢 買入標的：</span> {buy_list_str} &nbsp;&nbsp;|&nbsp;&nbsp; 
-                    <span style="color: #c62828; font-weight: bold;">🔴 賣出標的：</span> {sell_list_str}
+                    <span style="color: #2e7d32; font-weight: bold;">🟢 買入戰情室：</span> {buy_list_str} &nbsp;&nbsp;|&nbsp;&nbsp; 
+                    <span style="color: #c62828; font-weight: bold;">🔴 賣出防守線：</span> {sell_list_str}
                 </div>
                 ''', 
                 unsafe_allow_html=True
@@ -579,7 +701,7 @@ with tab_dashboard:
                         else:
                             st.error("無法取得回測資料。")
 
-    # --- 互動 K 線圖區塊 ---
+    # --- 互動 K 線圖區塊 (保留在看盤儀表板底部，不會再報錯！) ---
     st.divider()
     st.subheader("📉 價量與指標複合分析圖")
 
@@ -698,7 +820,7 @@ with tab_dashboard:
                 st.warning("⚠️ 無法取得該標的的 K 線圖資料，請確認代碼是否正確。")
 
 # ==========================================
-# 分頁 4：買賣戰情室 (新增獨立頁面)
+# 分頁 4：買賣戰情室 (維持分層表格的設計)
 # ==========================================
 with tab_war_room:
     st.subheader(f"⚔️ 買賣戰情室 ({timeframe_option})")
@@ -713,6 +835,8 @@ with tab_war_room:
         df_sell = display_df[display_df['建議'].str.contains("賣出", na=False)].reset_index(drop=True)
         df_hold = display_df[display_df['建議'].str.contains("避免殺低", na=False)].reset_index(drop=True)
         
+        # ⭐️ 買入戰情室區塊
+        st.markdown("### 🟢 買入戰情室")
         st.markdown(f"#### 第一步（找獵物）：💡 醞釀向上 ({len(df_up)})")
         if df_up.empty:
             st.info("目前無『醞釀向上』標的。")
@@ -739,6 +863,8 @@ with tab_war_room:
                 
         st.divider()
 
+        # ⭐️ 賣出防守線區塊
+        st.markdown("### 🔴 賣出防守線")
         st.markdown(f"#### 第一步（提防見頂）：⚠️ 醞釀向下 ({len(df_down)})")
         if df_down.empty:
             st.info("目前無『醞釀向下』標的。")
