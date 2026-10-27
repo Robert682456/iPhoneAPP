@@ -449,10 +449,83 @@ with tab_dashboard:
             display_df['SortRank'] = display_df.apply(get_sort_rank, axis=1)
             display_df = display_df.sort_values(by=['SortRank', '代碼']).drop(columns=['SortRank']).reset_index(drop=True)
             
+    # ⭐️ 補回漏掉的總體資金水位儀表板
+    market_ticker = st.text_input("📊 設定總體資金水位參考標的 (預設 0050.TW)：", key="market_ticker_input", on_change=update_other_inputs).strip().upper()
+    with st.spinner(f"運算 {market_ticker} 總體指標中..."):
+        market_trend = get_market_trend(market_ticker, tf_interval, tf_period)
+        if market_trend:
+            st.markdown(
+                f'''
+                <div style="background-color: {market_trend['color']}; padding: 15px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #ccc;">
+                    <h4 style="margin: 0; color: #333;">🧭 總體資金水位儀表板 ({market_ticker} {timeframe_option})</h4>
+                    <p style="margin: 5px 0 0 0; font-size: 18px; font-weight: bold; color: #333;">狀態：{market_trend['status']}</p>
+                    <p style="margin: 5px 0 0 0; color: #555;">💡 建議：{market_trend['advice']}</p>
+                </div>
+                ''', unsafe_allow_html=True
+            )
+        else:
+            st.warning(f"⚠️ 無法取得 {market_ticker} 的資料，請確認代碼是否正確。")
+
+    # ⭐️ 補回漏掉的臨時標的快速分析
+    st.divider()
+    st.subheader("🔍 臨時標的快速分析")
+    col_t1, col_t2, col_t3 = st.columns([2, 2, 2])
+    with col_t1:
+        st.text_input("輸入代碼 (例：2317.TW)", key="search_ticker", on_change=update_selected_from_search)
+    with col_t2:
+        st.text_input("輸入名稱 (選填，例：鴻海)", key="search_name", on_change=update_other_inputs)
+
+    temp_ticker = st.session_state.search_ticker.strip().upper()
+    temp_name = st.session_state.search_name.strip()
+
+    if temp_ticker:
+        disp_name = temp_name if temp_name else temp_ticker
+        temp_dict = {temp_ticker: disp_name}
+        with st.spinner(f"正在分析 {temp_ticker}..."):
+            temp_df = analyze_signals(tf_interval, tf_period, ma_s_lbl, ma_l_lbl, temp_dict)
+            
+        if not temp_df.empty and "⚠️ 無資料" not in temp_df.iloc[0]['收盤價(漲跌)']:
+            st.dataframe(
+                style_dataframe(temp_df), 
+                use_container_width=True,
+                column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
+            )
+            with col_t3:
+                st.write("") 
+                st.write("")
+                if st.button("➕ 加入自選股"):
+                    if temp_ticker not in st.session_state.watchlist_text:
+                        st.session_state.watchlist_text += f"\n{temp_ticker},{disp_name}"
+                        st.rerun()
+                    else:
+                        st.warning("此標的已在您的自選股清單中。")
+        else:
+            st.error("無法取得該代碼資料，請確認代碼是否正確。")
+    st.divider()
+
     if not display_df.empty:
-        st.subheader(f"📊 自選股狀態總覽 ({timeframe_option})")
+        # ⭐️ 將總結清單放在與「自選股狀態總覽」標題同一行 (完全符合附件8與附件9)
+        col_hdr1, col_hdr2 = st.columns([1.2, 3])
+        with col_hdr1:
+            st.subheader(f"📊 自選股狀態總覽 ({timeframe_option})")
+        with col_hdr2:
+            df_buy_zone = display_df[display_df['建議'].str.contains("買入|醞釀向上", na=False)]
+            df_sell_zone = display_df[display_df['建議'].str.contains("賣出|醞釀向下|避免殺低", na=False)]
+            
+            buy_list_str = ", ".join(df_buy_zone['代碼'].tolist()) if not df_buy_zone.empty else "無"
+            sell_list_str = ", ".join(df_sell_zone['代碼'].tolist()) if not df_sell_zone.empty else "無"
+            
+            st.markdown(
+                f'''
+                <div style="padding-top: 25px; text-align: right; font-size: 14px;">
+                    <span style="color: #2e7d32; font-weight: bold;">🟢 買入標的：</span> {buy_list_str} &nbsp;&nbsp;|&nbsp;&nbsp; 
+                    <span style="color: #c62828; font-weight: bold;">🔴 賣出標的：</span> {sell_list_str}
+                </div>
+                ''', 
+                unsafe_allow_html=True
+            )
         
-        # ⭐️ 恢復原有的快速篩選按鈕
+        # ⭐️ 完全還原原版的快速篩選器 (符合附件3)
         filter_opt = st.radio(
             "🔍 快速篩選：", 
             ["👀 顯示全部", "🟢 只看買入", "💡 醞釀向上", "⚠️ 醞釀向下", "🟡 避免殺低", "🔴 只看賣出", "⚡ 剛發生交叉"], 
@@ -506,7 +579,7 @@ with tab_dashboard:
                         else:
                             st.error("無法取得回測資料。")
 
-    # --- 互動 K 線圖區塊 (保留在看盤儀表板底部) ---
+    # --- 互動 K 線圖區塊 ---
     st.divider()
     st.subheader("📉 價量與指標複合分析圖")
 
@@ -624,77 +697,8 @@ with tab_dashboard:
             else:
                 st.warning("⚠️ 無法取得該標的的 K 線圖資料，請確認代碼是否正確。")
 
-    @st.cache_data(ttl=86400)
-    def calculate_win_rate(ticker, name, interval):
-        try:
-            df = yf.download(ticker, period="1y", interval=interval, progress=False)
-            if df.empty or len(df) < 35: return None
-            
-            df_w = yf.download(ticker, period="2y", interval="1wk", progress=False)
-            
-            close = df['Close'][ticker] if isinstance(df.columns, pd.MultiIndex) else df['Close']
-            volume = df['Volume'][ticker] if isinstance(df.columns, pd.MultiIndex) else df['Volume']
-            close = close.dropna()
-            volume = volume.dropna()
-            
-            close_w = df_w['Close'][ticker] if isinstance(df_w.columns, pd.MultiIndex) else df_w['Close']
-            close_w = close_w.dropna()
-            ema12_w = close_w.ewm(span=12, adjust=False).mean()
-            ema26_w = close_w.ewm(span=26, adjust=False).mean()
-            dif_w = ema12_w - ema26_w
-            wdif_dec = (dif_w < dif_w.shift(1)).astype(int)
-            
-            if interval == '1d':
-                wdif_dec_daily = wdif_dec.reindex(close.index, method='ffill').fillna(0)
-            
-            ma5, ma10 = close.rolling(5).mean(), close.rolling(10).mean()
-            vol_ma5 = volume.rolling(5).mean()
-            
-            ema12, ema26 = close.ewm(span=12, adjust=False).mean(), close.ewm(span=26, adjust=False).mean()
-            dif = ema12 - ema26
-            dea = dif.ewm(span=9, adjust=False).mean()
-            hist = dif - dea 
-            
-            trades, wins = 0, 0
-            holding = False
-            buy_price = 0
-            
-            for i in range(20, len(close)):
-                curr_close = close.iloc[i]
-                curr_ma5, curr_ma10 = ma5.iloc[i], ma10.iloc[i]
-                curr_hist = hist.iloc[i]
-                curr_vol, curr_vol_ma5 = volume.iloc[i], vol_ma5.iloc[i]
-                
-                if interval == '1d':
-                    weekly_dif_decreasing = bool(wdif_dec_daily.iloc[i])
-                else:
-                    weekly_dif_decreasing = dif.iloc[i] < dif.iloc[i-1]
-                    
-                vol_condition = curr_vol > curr_vol_ma5
-                target_position = (50 if curr_hist > 0 else 0) + (50 if curr_ma5 > curr_ma10 else 0)
-                
-                if not holding and target_position == 100 and vol_condition:
-                    holding = True
-                    buy_price = curr_close
-                elif holding and target_position == 0 and weekly_dif_decreasing:
-                    holding = False
-                    trades += 1
-                    if curr_close > buy_price:
-                        wins += 1
-                        
-            win_rate = (wins / trades * 100) if trades > 0 else 0
-            return {
-                "代碼": ticker, 
-                "名稱": name,
-                "總交易次數": trades, 
-                "獲利次數": wins, 
-                "歷史勝率": f"{win_rate:.1f}%" if trades > 0 else "無交易紀錄"
-            }
-        except Exception:
-            return None
-
 # ==========================================
-# 分頁 4：買賣戰情室 (獨立頁面)
+# 分頁 4：買賣戰情室 (新增獨立頁面)
 # ==========================================
 with tab_war_room:
     st.subheader(f"⚔️ 買賣戰情室 ({timeframe_option})")
@@ -709,72 +713,67 @@ with tab_war_room:
         df_sell = display_df[display_df['建議'].str.contains("賣出", na=False)].reset_index(drop=True)
         df_hold = display_df[display_df['建議'].str.contains("避免殺低", na=False)].reset_index(drop=True)
         
-        count_buy_zone = len(df_up) + len(df_buy)
-        count_sell_zone = len(df_down) + len(df_sell) + len(df_hold)
-        
-        sub_tab_buy, sub_tab_sell = st.tabs([f"🟢 買入戰情室 ({count_buy_zone})", f"🔴 賣出防守線 ({count_sell_zone})"])
-        
-        with sub_tab_buy:
-            st.markdown(f"#### 第一步（找獵物）：💡 醞釀向上 ({len(df_up)})")
-            if df_up.empty:
-                st.info("目前無『醞釀向上』標的。")
-            else:
-                ev_up = st.dataframe(
-                    style_dataframe(df_up), use_container_width=True, 
-                    on_select="rerun", selection_mode="single-row", key="war_up",
-                    column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
-                )
-                if ev_up.selection.rows:
-                    st.session_state.selected_ticker = df_up.iloc[ev_up.selection.rows[0]]['代碼']
+        st.markdown(f"#### 第一步（找獵物）：💡 醞釀向上 ({len(df_up)})")
+        if df_up.empty:
+            st.info("目前無『醞釀向上』標的。")
+        else:
+            ev_up = st.dataframe(
+                style_dataframe(df_up), use_container_width=True, 
+                on_select="rerun", selection_mode="single-row", key="war_up",
+                column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
+            )
+            if ev_up.selection.rows:
+                st.session_state.selected_ticker = df_up.iloc[ev_up.selection.rows[0]]['代碼']
 
-            st.markdown(f"#### 第二步（扣板機）：🟢 只看買入 ({len(df_buy)})")
-            if df_buy.empty:
-                st.info("目前無『買入』標的。")
-            else:
-                ev_buy = st.dataframe(
-                    style_dataframe(df_buy), use_container_width=True, 
-                    on_select="rerun", selection_mode="single-row", key="war_buy",
-                    column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
-                )
-                if ev_buy.selection.rows:
-                    st.session_state.selected_ticker = df_buy.iloc[ev_buy.selection.rows[0]]['代碼']
+        st.markdown(f"#### 第二步（扣板機）：🟢 只看買入 ({len(df_buy)})")
+        if df_buy.empty:
+            st.info("目前無『買入』標的。")
+        else:
+            ev_buy = st.dataframe(
+                style_dataframe(df_buy), use_container_width=True, 
+                on_select="rerun", selection_mode="single-row", key="war_buy",
+                column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
+            )
+            if ev_buy.selection.rows:
+                st.session_state.selected_ticker = df_buy.iloc[ev_buy.selection.rows[0]]['代碼']
+                
+        st.divider()
 
-        with sub_tab_sell:
-            st.markdown(f"#### 第一步（提防見頂）：⚠️ 醞釀向下 ({len(df_down)})")
-            if df_down.empty:
-                st.info("目前無『醞釀向下』標的。")
-            else:
-                ev_down = st.dataframe(
-                    style_dataframe(df_down), use_container_width=True, 
-                    on_select="rerun", selection_mode="single-row", key="war_down",
-                    column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
-                )
-                if ev_down.selection.rows:
-                    st.session_state.selected_ticker = df_down.iloc[ev_down.selection.rows[0]]['代碼']
+        st.markdown(f"#### 第一步（提防見頂）：⚠️ 醞釀向下 ({len(df_down)})")
+        if df_down.empty:
+            st.info("目前無『醞釀向下』標的。")
+        else:
+            ev_down = st.dataframe(
+                style_dataframe(df_down), use_container_width=True, 
+                on_select="rerun", selection_mode="single-row", key="war_down",
+                column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
+            )
+            if ev_down.selection.rows:
+                st.session_state.selected_ticker = df_down.iloc[ev_down.selection.rows[0]]['代碼']
 
-            st.markdown(f"#### 第二步（紀律出場）：🔴 只看賣出 ({len(df_sell)})")
-            if df_sell.empty:
-                st.info("目前無『賣出』標的。")
-            else:
-                ev_sell = st.dataframe(
-                    style_dataframe(df_sell), use_container_width=True, 
-                    on_select="rerun", selection_mode="single-row", key="war_sell",
-                    column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
-                )
-                if ev_sell.selection.rows:
-                    st.session_state.selected_ticker = df_sell.iloc[ev_sell.selection.rows[0]]['代碼']
+        st.markdown(f"#### 第二步（紀律出場）：🔴 只看賣出 ({len(df_sell)})")
+        if df_sell.empty:
+            st.info("目前無『賣出』標的。")
+        else:
+            ev_sell = st.dataframe(
+                style_dataframe(df_sell), use_container_width=True, 
+                on_select="rerun", selection_mode="single-row", key="war_sell",
+                column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
+            )
+            if ev_sell.selection.rows:
+                st.session_state.selected_ticker = df_sell.iloc[ev_sell.selection.rows[0]]['代碼']
 
-            st.markdown(f"#### 第三步（最後確認）：🟡 避免殺低 ({len(df_hold)})")
-            if df_hold.empty:
-                st.info("目前無『避免殺低』標的。")
-            else:
-                ev_hold = st.dataframe(
-                    style_dataframe(df_hold), use_container_width=True, 
-                    on_select="rerun", selection_mode="single-row", key="war_hold",
-                    column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
-                )
-                if ev_hold.selection.rows:
-                    st.session_state.selected_ticker = df_hold.iloc[ev_hold.selection.rows[0]]['代碼']
+        st.markdown(f"#### 第三步（最後確認）：🟡 避免殺低 ({len(df_hold)})")
+        if df_hold.empty:
+            st.info("目前無『避免殺低』標的。")
+        else:
+            ev_hold = st.dataframe(
+                style_dataframe(df_hold), use_container_width=True, 
+                on_select="rerun", selection_mode="single-row", key="war_hold",
+                column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
+            )
+            if ev_hold.selection.rows:
+                st.session_state.selected_ticker = df_hold.iloc[ev_hold.selection.rows[0]]['代碼']
 
 # --- 版權宣告與免責聲明 ---
 st.divider()
