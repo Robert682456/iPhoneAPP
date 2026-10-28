@@ -129,12 +129,16 @@ with tab_settings:
 with tab_rules:
     st.header("📖 雙指標波段系統 - 判斷原則（含股性自適應分流）")
     st.markdown("""
-    本系統專注於「順勢波段做多」與「極端超跌抄底」，並依據 **14日 ATR%** 與 **ETF/指數濾網** 自動切換進出場模式：
+    本系統專注於「順勢波段做多」與「極端超跌抄底」，並依據 **14日 ATR%**、**ETF/指數濾網** 與 **存債白名單** 自動切換模式：
     
     ### 🧬 股性自適應分流機制
     
+    * **💰 貨幣市場 / 超短債存債模式**：
+        * **鎖定條件**：SGOV、BIL、SHV 等超短天期美國國債或貨幣市場 ETF。
+        * **操作機制**：**【免出場長期持有】**。此類標的波動極微且每月穩定配息，不適用波段技術指標，系統自動鎖定為長期領息，永不發出賣出訊號。
+
     * **🏛️ 穩健權值 / 指數ETF型**：
-        * **鎖定條件**：大型權值、傳產循環股（ATR% < 3.5%），或**所有大盤指數與 ETF**（如 0050、VOO、QQQM、SGOV 等強制歸類為穩健型）。
+        * **鎖定條件**：大型權值、傳產循環股（ATR% < 3.5%），或大盤指數 ETF（如 0050、VOO、QQQM 等）。
         * **進場條件**：長短線共振帶量買進（或 SPC 極端超跌爆量）。
         * **出場機制**：啟動【日線敏捷出場】。當週線 DIF 下降且日線雙指標翻空時出場，防止回吐高檔波段利潤。
     
@@ -190,7 +194,8 @@ def get_market_trend(ticker, interval, period):
 @st.cache_data(ttl=300)
 def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
     results = []
-    ETF_WHITE_LIST = {"0050.TW", "VOO", "QQQM", "SGOV", "SPY", "IVV", "0056.TW", "00878.TW", "00919.TW"}
+    CASH_BOND_LIST = {"SGOV", "BIL", "SHV", "00719B.TW"}
+    ETF_WHITE_LIST = {"0050.TW", "VOO", "QQQM", "SPY", "IVV", "0056.TW", "00878.TW", "00919.TW"}
 
     for ticker, name in watchlist.items():
         try:
@@ -211,7 +216,7 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
             volume = df['Volume'][ticker] if isinstance(df.columns, pd.MultiIndex) else df['Volume']
             close, high, low, volume = close.dropna(), high.dropna(), low.dropna(), volume.dropna()
             
-            # --- 股性指標計算 (含 ETF / 大盤指數強制鎖定機制) ---
+            # --- 股性指標計算 (含 超短債存債/ETF 強制鎖定機制) ---
             tr1 = high - low
             tr2 = (high - close.shift(1)).abs()
             tr3 = (low - close.shift(1)).abs()
@@ -220,18 +225,20 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
             curr_close, prev_close = close.iloc[-1], close.iloc[-2]
             atr_pct = (atr14 / curr_close) * 100 if curr_close > 0 else 0
             
-            # 是否命中 ETF / 大盤指數特徵
+            is_cash_bond = (ticker in CASH_BOND_LIST) or ("美債" in name and "0-3" in name) or ("超短債" in name)
             is_etf_or_index = (
                 ticker in ETF_WHITE_LIST 
                 or "ETF" in name.upper() 
-                or "債" in name 
                 or "50" in name 
                 or "指數" in name
             )
             
-            if is_etf_or_index:
+            if is_cash_bond:
                 is_high_momentum = False
-                stock_profile = f"🏛️ 穩健·指數ETF"
+                stock_profile = "💰 收息·存債"
+            elif is_etf_or_index:
+                is_high_momentum = False
+                stock_profile = "🏛️ 穩健·指數ETF"
             else:
                 is_high_momentum = (atr_pct >= 3.5)
                 stock_profile = f"🚀 動能({atr_pct:.1f}%)" if is_high_momentum else f"🏛️ 穩健({atr_pct:.1f}%)"
@@ -363,73 +370,77 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
                     else:
                         daily_status = "🟡日線方向分歧"
 
-            # --- 買入標準判斷 ---
-            if target_position == 100:
-                if vol_condition:
-                    if interval == "1d" and not is_weekly_bullish:
-                        rec_text = "🟡 觀察"
-                        detail_reason = f"【短多長空】日線翻多帶量，但{weekly_status}，反彈暫不進場"
+            # ==========================================
+            # 建議判定 (存債資產強制免出場攔截)
+            # ==========================================
+            if is_cash_bond:
+                rec_text = "🔵 長期持有 (領息)"
+                detail_reason = "【免出場存債模式】純收息超短債資產，波動極低且穩定配息，免受波段指標干擾，建議長期續抱。"
+            else:
+                # --- 買入標準判斷 ---
+                if target_position == 100:
+                    if vol_condition:
+                        if interval == "1d" and not is_weekly_bullish:
+                            rec_text = "🟡 觀察"
+                            detail_reason = f"【短多長空】日線翻多帶量，但{weekly_status}，反彈暫不進場"
+                        else:
+                            rec_text = "🟢 買入"
+                            resonance_text = " (長短線共振)" if interval == "1d" else ""
+                            detail_reason = f"【雙多頭+帶量】{macd_text} 且 {ma_text}，量>{ma_s_label}均量{resonance_text}"
                     else:
-                        rec_text = "🟢 買入"
-                        resonance_text = " (長短線共振)" if interval == "1d" else ""
-                        detail_reason = f"【雙多頭+帶量】{macd_text} 且 {ma_text}，量>{ma_s_label}均量{resonance_text}"
+                        rec_text = "🟡 觀察"
+                        detail_reason = f"【量能不足】{macd_text} 且 {ma_text}，量縮觀望"
+                
+                # --- 自適應股性出場判斷 ---
+                elif target_position == 0:
+                    if curr_rsi <= 30 or curr_close <= curr_lcl:
+                        rec_text = "🟡 避免殺低"
+                        detail_reason = f"【乖離過大】雖已破線，但股價跌破LCL或RSI極度超賣({curr_rsi:.1f})，切勿恐慌殺低。 👉 預估初步反彈壓力：{ma_l_label} (約 {curr_ma10:.2f})"
+                    else:
+                        if is_high_momentum:
+                            if weekly_macd_dead:
+                                rec_text = "🔴 賣出 (動能出清)"
+                                detail_reason = f"【動能型終極出場】週MACD死叉確認大波段結束，建議出清剩餘 50% 部位。"
+                            elif weekly_ma_dead:
+                                rec_text = "🟠 減碼 (週MA死叉)"
+                                detail_reason = f"【動能型第一防線】週5W跌破10W，先行減碼 50% 鎖住利潤，其餘 50% 等週MACD確認。"
+                            else:
+                                rec_text = "🟡 觀察 (抱牢主升)"
+                                detail_reason = f"【動能型抱牢】日線震盪洗盤，但週線 5W>10W 且 MACD>0，無懼短線波動續抱。"
+                        else:
+                            if weekly_dif_decreasing:
+                                rec_text = "🔴 賣出 (日線敏捷)"
+                                detail_reason = f"【穩健型防守】週線DIF下降且日線翻空，保護獲利全數出場。"
+                            else:
+                                rec_text = "🟡 觀察"
+                                detail_reason = f"【防守延遲】日線翻空，但週線DIF仍上升，暫緩賣出。"
                 else:
                     rec_text = "🟡 觀察"
-                    detail_reason = f"【量能不足】{macd_text} 且 {ma_text}，量縮觀望"
-            
-            # --- 自適應股性出場判斷 ---
-            elif target_position == 0:
-                # 共同的防殺低防護網
-                if curr_rsi <= 30 or curr_close <= curr_lcl:
-                    rec_text = "🟡 避免殺低"
-                    detail_reason = f"【乖離過大】雖已破線，但股價跌破LCL或RSI極度超賣({curr_rsi:.1f})，切勿恐慌殺低。 👉 預估初步反彈壓力：{ma_l_label} (約 {curr_ma10:.2f})"
-                else:
-                    if is_high_momentum:
-                        # 🚀 高動能飆股模式：週線雙死叉分批出場
-                        if weekly_macd_dead:
-                            rec_text = "🔴 賣出 (動能出清)"
-                            detail_reason = f"【動能型終極出場】週MACD死叉確認大波段結束，建議出清剩餘 50% 部位。"
-                        elif weekly_ma_dead:
-                            rec_text = "🟠 減碼 (週MA死叉)"
-                            detail_reason = f"【動能型第一防線】週5W跌破10W，先行減碼 50% 鎖住利潤，其餘 50% 等週MACD確認。"
-                        else:
-                            rec_text = "🟡 觀察 (抱牢主升)"
-                            detail_reason = f"【動能型抱牢】日線震盪洗盤，但週線 5W>10W 且 MACD>0，無懼短線波動續抱。"
+                    if not weekly_dif_decreasing and curr_hist < 0:
+                        detail_reason = f"【方向分歧】指標偏空，但週線DIF仍上升，暫緩防守。"
                     else:
-                        # 🏛️ 穩健權值/指數ETF模式：日線敏捷出場
-                        if weekly_dif_decreasing:
-                            rec_text = "🔴 賣出 (日線敏捷)"
-                            detail_reason = f"【穩健型防守】週線DIF下降且日線翻空，保護獲利全數出場。"
-                        else:
-                            rec_text = "🟡 觀察"
-                            detail_reason = f"【防守延遲】日線翻空，但週線DIF仍上升，暫緩賣出。"
-            else:
-                rec_text = "🟡 觀察"
-                if not weekly_dif_decreasing and curr_hist < 0:
-                    detail_reason = f"【方向分歧】指標偏空，但週線DIF仍上升，暫緩防守。"
-                else:
-                    detail_reason = f"【方向分歧】{macd_text} 但 {ma_text}，指標未同步。"
+                        detail_reason = f"【方向分歧】{macd_text} 但 {ma_text}，指標未同步。"
 
-            # 雙向預警雷達
-            if "買入" not in rec_text and "賣出" not in rec_text and "減碼" not in rec_text and "殺低" not in rec_text:
-                if weekly_dif_decreasing and curr_rsi >= 70:
-                    rec_text = "⚠️ 醞釀向下"
-                    detail_reason = f"【逼近超買】週線DIF下降且RSI達高檔 ({curr_rsi:.1f})，極度貪婪隨時面臨下修。"
-                elif weekly_dif_decreasing and curr_hist > 0 and curr_hist < prev_hist and curr_close < curr_ma5:
-                    rec_text = "⚠️ 醞釀向下"
-                    detail_reason = f"【動能衰退】MACD紅柱縮減且週線DIF下降，多方推升無力提防見頂。"
-                elif curr_rsi <= 35:
-                    rec_text = "💡 醞釀向上"
-                    detail_reason = f"【逼近超賣】RSI降至低檔 ({curr_rsi:.1f})，隨時可能觸發技術性反彈。"
-                elif curr_hist < 0 and curr_hist > prev_hist and curr_close > curr_ma5:
-                    rec_text = "💡 醞釀向上"
-                    detail_reason = f"【動能收斂】MACD綠柱縮減且站上5MA，空方力竭準備打底。"
+                # 雙向預警雷達
+                if "買入" not in rec_text and "賣出" not in rec_text and "減碼" not in rec_text and "殺低" not in rec_text:
+                    if weekly_dif_decreasing and curr_rsi >= 70:
+                        rec_text = "⚠️ 醞釀向下"
+                        detail_reason = f"【逼近超買】週線DIF下降且RSI達高檔 ({curr_rsi:.1f})，極度貪婪隨時面臨下修。"
+                    elif weekly_dif_decreasing and curr_hist > 0 and curr_hist < prev_hist and curr_close < curr_ma5:
+                        rec_text = "⚠️ 醞釀向下"
+                        detail_reason = f"【動能衰退】MACD紅柱縮減且週線DIF下降，多方推升無力提防見頂。"
+                    elif curr_rsi <= 35:
+                        rec_text = "💡 醞釀向上"
+                        detail_reason = f"【逼近超賣】RSI降至低檔 ({curr_rsi:.1f})，隨時可能觸發技術性反彈。"
+                    elif curr_hist < 0 and curr_hist > prev_hist and curr_close > curr_ma5:
+                        rec_text = "💡 醞釀向上"
+                        detail_reason = f"【動能收斂】MACD綠柱縮減且站上5MA，空方力竭準備打底。"
 
-            # SPC 爆量止跌邏輯
-            if curr_close <= curr_lcl:
-                if curr_vol > curr_vol_ma5 * 2 and curr_rsi < 30:
-                    rec_text = "🟢 逢低買入"
-                    detail_reason = f"【SPC極端超跌】跌破LCL、爆出2倍均量且RSI超賣({curr_rsi:.1f})，籌碼換手醞釀強彈！"
+                # SPC 爆量止跌邏輯
+                if curr_close <= curr_lcl:
+                    if curr_vol > curr_vol_ma5 * 2 and curr_rsi < 30:
+                        rec_text = "🟢 逢低買入"
+                        detail_reason = f"【SPC極端超跌】跌破LCL、爆出2倍均量且RSI超賣({curr_rsi:.1f})，籌碼換手醞釀強彈！"
 
             results.append({
                 "代碼": ticker, 
@@ -456,12 +467,13 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
         def get_sort_rank(row):
             if "買入" in row['建議']: return 1  
             elif "醞釀向上" in row['建議']: return 2
-            elif "醞釀向下" in row['建議']: return 3
-            elif "減碼" in row['建議']: return 4
-            elif "避免殺低" in row['建議']: return 5 
-            elif "觀察" in row['建議']: return 6
-            elif "賣出" in row['建議']: return 7
-            else: return 8
+            elif "長期持有" in row['建議']: return 3
+            elif "醞釀向下" in row['建議']: return 4
+            elif "減碼" in row['建議']: return 5
+            elif "避免殺低" in row['建議']: return 6 
+            elif "觀察" in row['建議']: return 7
+            elif "賣出" in row['建議']: return 8
+            else: return 9
         df_results['SortRank'] = df_results.apply(get_sort_rank, axis=1)
         df_results = df_results.sort_values(by=['SortRank', '代碼']).drop(columns=['SortRank']).reset_index(drop=True)
         
@@ -494,11 +506,12 @@ def calculate_win_rate(ticker, name, interval):
         atr14 = tr.rolling(14).mean()
         atr_pct = (atr14 / close) * 100
         
-        ETF_WHITE_LIST = {"0050.TW", "VOO", "QQQM", "SGOV", "SPY", "IVV", "0056.TW", "00878.TW", "00919.TW"}
+        CASH_BOND_LIST = {"SGOV", "BIL", "SHV", "00719B.TW"}
+        ETF_WHITE_LIST = {"0050.TW", "VOO", "QQQM", "SPY", "IVV", "0056.TW", "00878.TW", "00919.TW"}
+        is_cash_bond = (ticker in CASH_BOND_LIST) or ("美債" in name and "0-3" in name) or ("超短債" in name)
         is_etf_or_index = (
             ticker in ETF_WHITE_LIST 
             or "ETF" in name.upper() 
-            or "債" in name 
             or "50" in name 
             or "指數" in name
         )
@@ -530,14 +543,14 @@ def calculate_win_rate(ticker, name, interval):
             target_position = (50 if curr_hist > 0 else 0) + (50 if curr_ma5 > curr_ma10 else 0)
             vol_condition = curr_vol > curr_vol_ma5
             
-            # 進場條件
             if not holding and target_position == 100 and vol_condition:
                 holding = True
                 buy_price = curr_close
             elif holding:
                 should_exit = False
-                # 若為 ETF/指數基金或 ATR% < 3.5% 走穩健型日線敏捷出場
-                if not is_etf_or_index and curr_atr_pct >= 3.5:
+                if is_cash_bond:
+                    should_exit = False
+                elif not is_etf_or_index and curr_atr_pct >= 3.5:
                     if interval == '1d':
                         should_exit = (w_hist_aligned.iloc[i] <= 0) and (w_ma5_aligned.iloc[i] < w_ma10_aligned.iloc[i])
                     else:
@@ -575,6 +588,7 @@ def style_dataframe(df):
         if isinstance(val, str):
             if '🚀' in val: return 'color: #d81b60; font-weight: bold;'
             elif '🏛️' in val: return 'color: #1976d2; font-weight: bold;'
+            elif '💰' in val: return 'color: #2e7d32; font-weight: bold;'
         return ''
         
     res = df.style
@@ -708,7 +722,7 @@ with tab_dashboard:
         # 快速篩選器
         filter_opt = st.radio(
             "🔍 快速篩選：", 
-            ["👀 顯示全部", "🟢 只看買入", "💡 醞釀向上", "⚠️ 醞釀向下", "🟠 建議減碼", "🟡 避免殺低", "🔴 只看賣出", "⚡ 剛發生交叉"], 
+            ["👀 顯示全部", "🟢 只看買入", "💡 醞釀向上", "🔵 長期持有", "⚠️ 醞釀向下", "🟠 建議減碼", "🟡 避免殺低", "🔴 只看賣出", "⚡ 剛發生交叉"], 
             index=0,
             horizontal=True
         )
@@ -718,6 +732,8 @@ with tab_dashboard:
             filtered_df = filtered_df[filtered_df['建議'].str.contains("買入", na=False)]
         elif filter_opt == "💡 醞釀向上":
             filtered_df = filtered_df[filtered_df['建議'].str.contains("醞釀向上", na=False)]
+        elif filter_opt == "🔵 長期持有":
+            filtered_df = filtered_df[filtered_df['建議'].str.contains("長期持有", na=False)]
         elif filter_opt == "⚠️ 醞釀向下":
             filtered_df = filtered_df[filtered_df['建議'].str.contains("醞釀向下", na=False)]
         elif filter_opt == "🟠 建議減碼":
