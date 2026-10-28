@@ -184,26 +184,57 @@ else:
     ACTIVE_WATCHLIST = parse_watchlist(st.session_state.watchlist_1_text)
 
 # ==========================================
-# 分頁 2：策略判斷原則
+# 分頁 2：策略判斷原則 (整合完整決策流程邏輯層次)
 # ==========================================
 with tab_rules:
-    st.header("📖 雙指標波段系統 - 判斷原則（方案 A 嚴格型止跌加碼版）")
+    st.header("📖 雙指標波段系統 - 策略判斷原則與決策流程邏輯")
+    
     st.markdown("""
-    本系統採用「長線保護短線」的全方位跨週期綜合評估。**每檔股票只會有一個綜合最佳建議**，不隨檢視圖表切換而改變：
+    本系統採用**「長線保護短線」**的全方位跨週期綜合評估。**每檔股票只產出一個綜合最佳決策解**，線圖週期切換僅影響圖表顯示，不干擾決策信號。
     
-    ### 🧬 核心資產／分流機制
+    ---
     
-    * **🔵 核心資產／免出場長期持有模式 (Buy and Hold)**：
-        * **鎖定條件**：SGOV、BIL 等超短債，以及 **0050、VOO、QQQM** 等大盤原型 ETF。
-        * **操作機制**：**【免出場長期持有】**。隨全球經濟成長滾動長期複利，不執行波段停損停利。
+    ### 🧭 戰情室決策流程邏輯層次（由上而下執行原則）
+    
+    在每日盤中或盤後決策時，請依據戰情室的四大梯隊由上而下依序檢視：
 
-    * **🟢 破底分批加碼機制 (方案 A 嚴格確認型)**：
-        * **鎖定條件**：股價跌破近 1 年絕對低點或位階處於極限低檔（≤ 10%）。
-        * **加碼觸發標準**：必須同時滿足 **收盤價實質站上日 5MA** 且 **日 MACD 金叉 (柱狀 > 0) 或 5MA 金叉 10MA**。
-        * **未達標處置**：若尚未金叉轉強，系統一律標示為 **【🟡 破底打底觀察】**，禁止提早進場接刀。
+    #### 1️⃣ 第一梯隊：左側極限防護區（最高優先攔截）
+    * **🎯 破底加碼雷達：`🟢 破底分批加碼` (方案 A 嚴格確認型)**
+        * **觸發條件**：股價跌破近 1 年低點或處於年度極限低檔（≤ 10%），且**收盤價實質站上日 5MA**，同時**日 MACD 金叉 (柱狀 > 0) 或 5MA 金叉 10MA**。
+        * **實戰動作**：確認空方動能耗盡且短線翻多，啟動左側金字塔分批攤平布局，**全面壓制任何賣出訊號**。
+    * **👀 破底打底觀察：`🟡 破底打底觀察`**
+        * **觸發條件**：已實質破底或位階極低，但日線 MA/MACD 尚未金叉轉強（如跌勢中僅出現單日小紅 K）。
+        * **實戰動作**：**嚴禁盲目提早進場接刀**，耐心等待日線指標正式翻多，保留現金銀彈。
+
+    #### 2️⃣ 第二梯隊：資產配置核心（免出場長期持有）
+    * **🏛️ 核心資產：`🔵 長期持有`**
+        * **納入名單**：超短天期美債（SGOV、BIL 等）與大盤核心原型 ETF（0050、VOO、QQQM 等）。
+        * **實戰動作**：此類標的隨經濟長期成長滾動複利或穩定領息，**完全免疫所有短期技術面出場信號**，不執行波段停損停利，建議定期定額或逢低持續續抱。
+
+    #### 3️⃣ 第三梯隊：右側常規多頭波段（標準進場兩步曲）
+    * **第一步（找獵物）：`💡 醞釀向上`**
+        * **優先準則**：以**「週線大底即將完成」**為核心（週 MACD 綠柱收斂站上 5W 均線或週 RSI 低檔脫離）。若日線同步站上 5MA 翻多，則升級標記為 `🌟 醞釀向上 (週大底+日發動)`。
+        * **實戰動作**：列入每日重點買進追蹤清單，等待帶量共振。
+    * **第二步（扣板機）：`🟢 只看買入`**
+        * **觸發條件**：週線 MACD>0 且 5W>10W；日線 MACD>0 且 5MA>10MA，且當日成交量 > 5 日均量。
+        * **實戰動作**：長短線共振帶量確認，正式進場建立波段多頭部位。
+
+    #### 4️⃣ 第四梯隊：轉折防守與紀律出場管控
+    * **`🛡️ 歷史低檔打底 (抱牢)`**：近 1 年位階 ≤ 25%，基期極低且非破底，指標死叉具滯後性，低接者切勿殺在阿呆谷，建議耐心抱牢。
+    * **`🟠 分批停利 (強彈中)`**：高動能標的雖週線死叉，但當日強漲 ≥ 4%，代表低檔買盤承接強烈，建議先獲利了結 30%~50%，其餘以日 5MA 防守。
+    * **`⚠️ 醞釀向下`**：週線 DIF 下降前提下，日 MACD 紅柱縮減且跌破 5MA，或 RSI ≥ 70，提防見頂拉回。
+    * **`🟠 建議減碼 50%`**：高動能標的週 5W 跌破 10W，啟動第一階段防線，先行減碼鎖利。
+    * **`🔴 只看賣出`**：
+        * **高動能型**：週 MACD 正式死叉，確認大波段結束，出清剩餘 50% 部位。
+        * **穩健型**：週線 DIF 下降且日線雙指標翻空，啟動日線敏捷防守果斷出場。
+    * **`🟡 避免殺低`**：已滿足賣出條件，但股價已跌破布林下軌（LCL）或 RSI ≤ 30，代表嚴重負乖離，強制暫緩賣出，等待反彈回 10MA 再行減碼。
+
+    ---
     
-    * **🚀 高動能波段型**：
-        * **出場機制**：週 5W 破 10W 減碼 50%，週 MACD 正式死叉出清剩餘部位；但受「近 1 年低點抱牢」與「破底加碼」保護。
+    ### 🧬 股性自適應分流門檻（ATR%）
+    * **動能(%) 計算**：以 14 日平均真實波動幅度除以股價得出（$ATR_{14} / Price \times 100\%$）。
+    * **高動能型 ($\ge 3.5\%$)**：中小型成長股，防守採週線雙死叉，容忍日線震盪洗盤，賺取倍數主升波。
+    * **穩健型 ($< 3.5\%$)**：大型權值與傳產循環股，防守採日線敏捷出場，保護高檔薄利。
     """)
 
 # ==========================================
@@ -313,9 +344,7 @@ def analyze_signals_comprehensive(watchlist):
             curr_hist_d, prev_hist_d = hist_d.iloc[-1], hist_d.iloc[-2]
             curr_vol_d, curr_vol_ma5_d = volume_d.iloc[-1], vol_ma5_d.iloc[-1]
 
-            # ==========================================
-            # 🎯 方案 A 嚴格型止跌判定核心
-            # ==========================================
+            # 方案 A 嚴格止跌確認
             is_daily_golden_cross = (curr_hist_d > 0) or (curr_ma5_d > curr_ma10_d)
             is_above_ma5 = (curr_close > curr_ma5_d)
             is_daily_stopping_drop = is_above_ma5 and is_daily_golden_cross
@@ -368,7 +397,7 @@ def analyze_signals_comprehensive(watchlist):
             is_daily_launching = (curr_close > curr_ma5_d) and (curr_hist_d > prev_hist_d)
 
             # ==========================================
-            # 綜合唯一建議判定 (方案 A 嚴格攔截)
+            # 綜合唯一建議判定
             # ==========================================
             if is_buy_and_hold:
                 rec_text = "🔵 長期持有 (核心被動)"
@@ -377,7 +406,6 @@ def analyze_signals_comprehensive(watchlist):
                 else:
                     detail_reason = "【免出場核心資產】大盤原型指數，隨經濟成長滾動長期複利，不執行技術面停損停利，建議定期定額或逢低續抱。"
             
-            # 🛡️ 破底判定分流：達標加碼 vs 未達標觀察
             elif is_broke_1y_low:
                 if is_daily_stopping_drop:
                     rec_text = "🟢 破底分批加碼"
@@ -834,7 +862,7 @@ with tab_dashboard:
                 st.warning("⚠️ 無法取得該標的的 K 線圖資料，請確認代碼是否正確。")
 
 # ==========================================
-# 分頁 4：買賣戰情室
+# 分頁 4：買賣戰情室 (依四大梯隊邏輯分流)
 # ==========================================
 with tab_war_room:
     st.subheader(f"⚔️ 買賣戰情室【{st.session_state.current_group_choice}】 (長短線雙週期綜合唯一解)")
@@ -855,7 +883,7 @@ with tab_war_room:
         df_sell = display_df[display_df['建議'].str.contains("賣出", na=False)].reset_index(drop=True)
         df_defense = display_df[display_df['建議'].str.contains("避免殺低", na=False)].reset_index(drop=True)
         
-        # 🟢 破底加碼專區（方案 A 嚴格確認）
+        # 1️⃣ 第一梯隊：左側極限防護區
         if not df_dip_buy.empty:
             st.markdown(f"#### 🎯 破底加碼雷達（已確認翻多）：🟢 破底分批加碼 ({len(df_dip_buy)})")
             ev_dip = st.dataframe(
@@ -867,7 +895,6 @@ with tab_war_room:
                 st.session_state.selected_ticker = df_dip_buy.iloc[ev_dip.selection.rows[0]]['代碼']
             st.divider()
 
-        # 🟡 破底打底觀察專區（未金叉暫緩加碼）
         if not df_dip_watch.empty:
             st.markdown(f"#### 👀 破底打底觀察（未金叉暫緩加碼）：🟡 破底打底觀察 ({len(df_dip_watch)})")
             ev_watch = st.dataframe(
@@ -879,6 +906,7 @@ with tab_war_room:
                 st.session_state.selected_ticker = df_dip_watch.iloc[ev_watch.selection.rows[0]]['代碼']
             st.divider()
 
+        # 2️⃣ 第二梯隊：資產配置核心
         if not df_hold_core.empty:
             st.markdown(f"#### 🏛️ 核心資產（免出場長期持有）：🔵 長期持有 ({len(df_hold_core)})")
             ev_core = st.dataframe(
@@ -889,6 +917,7 @@ with tab_war_room:
             if ev_core.selection.rows:
                 st.session_state.selected_ticker = df_hold_core.iloc[ev_core.selection.rows[0]]['代碼']
 
+        # 3️⃣ 第三梯隊：右側常規多頭波段
         st.markdown(f"#### 第一步（找獵物）：💡 醞釀向上 ({len(df_up)})  [週線大底即將完成最高優先]")
         if df_up.empty:
             st.info("目前無『醞釀向上』標的。")
@@ -915,6 +944,7 @@ with tab_war_room:
                 
         st.divider()
 
+        # 4️⃣ 第四梯隊：轉折防守與出場管控
         if not df_bottom.empty:
             st.markdown(f"#### 🛡️ 歷史低檔保護（切勿殺低 / 抱牢）：🟡 歷史低檔打底 ({len(df_bottom)})")
             ev_bt = st.dataframe(
