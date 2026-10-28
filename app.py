@@ -129,13 +129,15 @@ with tab_settings:
 with tab_rules:
     st.header("📖 雙指標波段系統 - 判斷原則（含股性自適應分流）")
     st.markdown("""
-    本系統專注於「順勢波段做多」與「極端超跌抄底」，並依據 **14日 ATR%** 自動切換出場模式：
+    本系統專注於「順勢波段做多」與「極端超跌抄底」，並依據 **14日 ATR%** 與 **ETF/指數濾網** 自動切換出場模式：
     
     ### 🧬 股性自適應分流機制
-    - **🚀 高動能波段型 ($\text{ATR\%} \ge 3.5\%$)**：如中小型科技股、高波動飆股。
-      - **出場機制**：啟動【週線雙死叉分批】。週 5W 跌破 10W 時建議減碼 50%；週 MACD 正式死叉時出清剩餘 50%。容忍日線洗盤，咬住大主升段。
-    - **🏛️ 穩健權值循環型 ($\text{ATR\%} < 3.5\%$)**：如大型權值、傳產循環股。
-      - **出場機制**：啟動【日線敏捷出場】。當週線 DIF 下降且日線雙指標翻空時果斷出場，防止尖頭反轉造成高檔利潤大幅回吐。
+    - **🏛️ 穩健權值 / 指數ETF型**：
+      - **鎖定條件**：大型權值、傳產循環股（$\text{ATR\%} < 3.5\%$），或**所有大盤指數與 ETF**（如 0050、VOO、QQQM、SGOV 等強制歸類為穩健型）。
+      - **出場機制**：啟動【日線敏捷出場】。當週線 DIF 下降且日線雙指標翻空時出場，防止回吐高檔波段利潤。
+    - **🚀 高動能波段型 ($\text{ATR\%} \ge 3.5\%$)**：
+      - **鎖定條件**：中小型科技股、高波動成長飆股。
+      - **出場機制**：啟動【週線雙死叉分批】。週 5W 跌破 10W 建議減碼 50%；週 MACD 正式死叉時出清剩餘 50%，以抗震耐震咬滿主升段。
 
     ---
 
@@ -184,6 +186,8 @@ def get_market_trend(ticker, interval, period):
 @st.cache_data(ttl=300)
 def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
     results = []
+    ETF_WHITE_LIST = {"0050.TW", "VOO", "QQQM", "SGOV", "SPY", "IVV", "0056.TW", "00878.TW", "00919.TW"}
+
     for ticker, name in watchlist.items():
         try:
             df = yf.download(ticker, period=period, interval=interval, progress=False)
@@ -203,7 +207,7 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
             volume = df['Volume'][ticker] if isinstance(df.columns, pd.MultiIndex) else df['Volume']
             close, high, low, volume = close.dropna(), high.dropna(), low.dropna(), volume.dropna()
             
-            # --- 股性指標計算 (14日 ATR%) ---
+            # --- 股性指標計算 (含 ETF / 大盤指數強制鎖定機制) ---
             tr1 = high - low
             tr2 = (high - close.shift(1)).abs()
             tr3 = (low - close.shift(1)).abs()
@@ -212,8 +216,21 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
             curr_close, prev_close = close.iloc[-1], close.iloc[-2]
             atr_pct = (atr14 / curr_close) * 100 if curr_close > 0 else 0
             
-            is_high_momentum = (atr_pct >= 3.5)
-            stock_profile = f"🚀 動能({atr_pct:.1f}%)" if is_high_momentum else f"🏛️ 穩健({atr_pct:.1f}%)"
+            # 是否命中 ETF / 大盤指數特徵
+            is_etf_or_index = (
+                ticker in ETF_WHITE_LIST 
+                or "ETF" in name.upper() 
+                or "債" in name 
+                or "50" in name 
+                or "指數" in name
+            )
+            
+            if is_etf_or_index:
+                is_high_momentum = False
+                stock_profile = f"🏛️ 穩健·指數ETF"
+            else:
+                is_high_momentum = (atr_pct >= 3.5)
+                stock_profile = f"🚀 動能({atr_pct:.1f}%)" if is_high_momentum else f"🏛️ 穩健({atr_pct:.1f}%)"
             
             ma5, ma10, ma20 = close.rolling(5).mean(), close.rolling(10).mean(), close.rolling(20).mean()
             vol_ma5 = volume.rolling(5).mean()
@@ -375,10 +392,10 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
                             rec_text = "🟡 觀察 (抱牢主升)"
                             detail_reason = f"【動能型抱牢】日線震盪洗盤，但週線 5W>10W 且 MACD>0，無懼短線波動續抱。"
                     else:
-                        # 🏛️ 穩健權值模式：日線敏捷出場
+                        # 🏛️ 穩健權值/指數ETF模式：日線敏捷出場
                         if weekly_dif_decreasing:
                             rec_text = "🔴 賣出 (日線敏捷)"
-                            detail_reason = f"【穩健型防守】週線DIF下降(由 {prev_dif_w_val:.2f} 降至 {curr_dif_w_val:.2f})且日線翻空，防止回吐獲利全數出場。"
+                            detail_reason = f"【穩健型防守】週線DIF下降且日線翻空，保護獲利全數出場。"
                         else:
                             rec_text = "🟡 觀察"
                             detail_reason = f"【防守延遲】日線翻空，但週線DIF仍上升，暫緩賣出。"
@@ -473,6 +490,15 @@ def calculate_win_rate(ticker, name, interval):
         atr14 = tr.rolling(14).mean()
         atr_pct = (atr14 / close) * 100
         
+        ETF_WHITE_LIST = {"0050.TW", "VOO", "QQQM", "SGOV", "SPY", "IVV", "0056.TW", "00878.TW", "00919.TW"}
+        is_etf_or_index = (
+            ticker in ETF_WHITE_LIST 
+            or "ETF" in name.upper() 
+            or "債" in name 
+            or "50" in name 
+            or "指數" in name
+        )
+        
         if interval == '1d':
             wdif_dec_aligned = wdif_dec.reindex(close.index, method='ffill').fillna(0)
             w_ma5_aligned = ma5_w.reindex(close.index, method='ffill')
@@ -505,16 +531,14 @@ def calculate_win_rate(ticker, name, interval):
                 holding = True
                 buy_price = curr_close
             elif holding:
-                # 依股性分流出場判斷
                 should_exit = False
-                if curr_atr_pct >= 3.5:
-                    # 動能型：週線 MACD 死叉或週線雙死叉出場
+                # 若為 ETF/指數基金或 ATR% < 3.5% 走穩健型日線敏捷出場
+                if not is_etf_or_index and curr_atr_pct >= 3.5:
                     if interval == '1d':
                         should_exit = (w_hist_aligned.iloc[i] <= 0) and (w_ma5_aligned.iloc[i] < w_ma10_aligned.iloc[i])
                     else:
                         should_exit = (hist.iloc[i] <= 0) and (ma5.iloc[i] < ma10.iloc[i])
                 else:
-                    # 穩健型：日線敏捷出場
                     if interval == '1d':
                         should_exit = (target_position == 0) and bool(wdif_dec_aligned.iloc[i])
                     else:
@@ -677,7 +701,7 @@ with tab_dashboard:
     if not display_df.empty:
         st.subheader(f"📊 自選股狀態總覽 ({timeframe_option})")
         
-        # 快速篩選器 (包含減碼選項)
+        # 快速篩選器
         filter_opt = st.radio(
             "🔍 快速篩選：", 
             ["👀 顯示全部", "🟢 只看買入", "💡 醞釀向上", "⚠️ 醞釀向下", "🟠 建議減碼", "🟡 避免殺低", "🔴 只看賣出", "⚡ 剛發生交叉"], 
@@ -729,7 +753,7 @@ with tab_dashboard:
                         
                         if backtest_results:
                             st.dataframe(pd.DataFrame(backtest_results), use_container_width=True)
-                            st.caption("※ 回測邏輯：動能型標的依週線雙死叉出場，穩健型標的依日線敏捷出場。")
+                            st.caption("※ 回測邏輯：動能型標的依週線雙死叉出場，穩健型標的（含ETF/指數）依日線敏捷出場。")
                         else:
                             st.error("無法取得回測資料。")
 
@@ -852,7 +876,7 @@ with tab_dashboard:
                 st.warning("⚠️ 無法取得該標的的 K 線圖資料，請確認代碼是否正確。")
 
 # ==========================================
-# 分頁 4：買賣戰情室 (獨立分頁，由上而下列出)
+# 分頁 4：買賣戰情室 
 # ==========================================
 with tab_war_room:
     st.subheader(f"⚔️ 買賣戰情室 ({timeframe_option})")
@@ -909,7 +933,7 @@ with tab_war_room:
         if not df_trim.empty:
             st.markdown(f"#### 第二步 A（動能型減碼防線）：🟠 建議減碼50% ({len(df_trim)})")
             ev_trim = st.dataframe(
-                style_dataframe(df_trim), use_container_width=True,
+                style_dataframe(df_trim), use_container_width=True, 
                 on_select="rerun", selection_mode="single-row", key="war_trim",
                 column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
             )
