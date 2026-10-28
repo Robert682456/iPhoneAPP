@@ -129,15 +129,19 @@ with tab_settings:
 with tab_rules:
     st.header("📖 雙指標波段系統 - 判斷原則（含股性自適應分流）")
     st.markdown("""
-    本系統專注於「順勢波段做多」與「極端超跌抄底」，並依據 **14日 ATR%** 與 **ETF/指數濾網** 自動切換出場模式：
+    本系統專注於「順勢波段做多」與「極端超跌抄底」，並依據 **14日 ATR%** 與 **ETF/指數濾網** 自動切換進出場模式：
     
     ### 🧬 股性自適應分流機制
-    - **🏛️ 穩健權值 / 指數ETF型**：
-      - **鎖定條件**：大型權值、傳產循環股（$\text{ATR\%} < 3.5\%$），或**所有大盤指數與 ETF**（如 0050、VOO、QQQM、SGOV 等強制歸類為穩健型）。
-      - **出場機制**：啟動【日線敏捷出場】。當週線 DIF 下降且日線雙指標翻空時出場，防止回吐高檔波段利潤。
-    - **🚀 高動能波段型 ($\text{ATR\%} \ge 3.5\%$)**：
-      - **鎖定條件**：中小型科技股、高波動成長飆股。
-      - **出場機制**：啟動【週線雙死叉分批】。週 5W 跌破 10W 建議減碼 50%；週 MACD 正式死叉時出清剩餘 50%，以抗震耐震咬滿主升段。
+    
+    * **🏛️ 穩健權值 / 指數ETF型**：
+        * **鎖定條件**：大型權值、傳產循環股（ATR% < 3.5%），或**所有大盤指數與 ETF**（如 0050、VOO、QQQM、SGOV 等強制歸類為穩健型）。
+        * **進場條件**：長短線共振帶量買進（或 SPC 極端超跌爆量）。
+        * **出場機制**：啟動【日線敏捷出場】。當週線 DIF 下降且日線雙指標翻空時出場，防止回吐高檔波段利潤。
+    
+    * **🚀 高動能波段型**：
+        * **鎖定條件**：中小型科技股、高波動成長飆股（ATR% ≥ 3.5%）。
+        * **進場條件**：長短線共振帶量買進（或打底起漲）。
+        * **出場機制**：啟動【週線雙死叉分批】。週 5W 跌破 10W 建議減碼 50%；週 MACD 正式死叉時出清剩餘 50%，以抗震耐震咬滿主升段。
 
     ---
 
@@ -933,7 +937,7 @@ with tab_war_room:
         if not df_trim.empty:
             st.markdown(f"#### 第二步 A（動能型減碼防線）：🟠 建議減碼50% ({len(df_trim)})")
             ev_trim = st.dataframe(
-                style_dataframe(df_trim), use_container_width=True, 
+                style_dataframe(df_trim), use_container_width=True,
                 on_select="rerun", selection_mode="single-row", key="war_trim",
                 column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
             )
