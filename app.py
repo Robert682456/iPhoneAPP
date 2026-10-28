@@ -206,7 +206,7 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
             if df.empty or len(df) < 35:
                 results.append({
                     "代碼": ticker, "名稱": name, "收盤價(漲跌)": "⚠️ 無資料",
-                    "股性模式": "⚪ 未知", "股性類別": "未知",
+                    "股性模式": "⚪ 未知", "股性類別": "未知", "距高點差距%": "-",
                     "建議": "⚪ 未知", "最新動態": "-",
                     "詳細判定原因": "無足夠 K 線資料，請檢查代碼格式",
                     "Yahoo股市": f"https://finance.yahoo.com/quote/{ticker}"
@@ -287,6 +287,12 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
                 peak_date = high.tail(lookback_len).idxmax().strftime('%m/%d')
 
             drawdown_from_peak = ((peak_high - curr_close) / peak_high) * 100 if peak_high > 0 else 0
+            
+            # 格式化距高點差距字串
+            if is_high_momentum:
+                drawdown_display = f"-{drawdown_from_peak:.1f}% ({peak_high:.2f})"
+            else:
+                drawdown_display = "-"
             
             curr_ma5, curr_ma10 = ma5.iloc[-1], ma10.iloc[-1]
             curr_ma20, prev_ma20 = ma20.iloc[-1], ma20.iloc[-2]
@@ -471,6 +477,7 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
                 "代碼": ticker, 
                 "名稱": name, 
                 "收盤價(漲跌)": price_display,
+                "距高點差距%": drawdown_display,
                 "股性模式": stock_profile,
                 "股性類別": stock_category,
                 "建議": rec_text,
@@ -481,7 +488,7 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
         except Exception: 
             results.append({
                 "代碼": ticker, "名稱": name, "收盤價(漲跌)": "⚠️ 錯誤",
-                "股性模式": "⚪ 異常", "股性類別": "未知",
+                "股性模式": "⚪ 異常", "股性類別": "未知", "距高點差距%": "-",
                 "建議": "⚪ 未知", "最新動態": "-",
                 "詳細判定原因": "抓取過程發生異常，請稍後刷新",
                 "Yahoo股市": f"https://finance.yahoo.com/quote/{ticker}"
@@ -626,14 +633,25 @@ def style_dataframe(df):
             elif '🏛️' in val: return 'color: #1976d2; font-weight: bold;'
             elif '💰' in val: return 'color: #2e7d32; font-weight: bold;'
         return ''
+    def color_drawdown(val):
+        if isinstance(val, str) and val.startswith('-'):
+            try:
+                num = float(val.split('%')[0].replace('-', ''))
+                if num >= 15.0: return 'color: #d32f2f; font-weight: bold; background-color: #ffebee;'
+                elif num >= 12.0: return 'color: #f57c00; font-weight: bold;'
+            except Exception:
+                pass
+        return ''
         
     res = df.style
     if hasattr(res, "map"):
         if '收盤價(漲跌)' in df.columns: res = res.map(color_trend, subset=['收盤價(漲跌)'])
         if '股性模式' in df.columns: res = res.map(color_profile, subset=['股性模式'])
+        if '距高點差距%' in df.columns: res = res.map(color_drawdown, subset=['距高點差距%'])
     else:
         if '收盤價(漲跌)' in df.columns: res = res.applymap(color_trend, subset=['收盤價(漲跌)'])
         if '股性模式' in df.columns: res = res.applymap(color_profile, subset=['股性模式'])
+        if '距高點差距%' in df.columns: res = res.applymap(color_drawdown, subset=['距高點差距%'])
     return res
 
 @st.cache_data(ttl=300)
@@ -784,7 +802,9 @@ with tab_dashboard:
         # ==========================================
         # 依股性分區塊獨立呈現 (穩健型 vs 高動能型)
         # ==========================================
-        df_steady = filtered_df[filtered_df['股性類別'] == "穩健型"].drop(columns=['股性類別']).reset_index(drop=True)
+        # 穩健型：不需顯示「距高點差距%」與內部用「股性類別」
+        df_steady = filtered_df[filtered_df['股性類別'] == "穩健型"].drop(columns=['股性類別', '距高點差距%']).reset_index(drop=True)
+        # 高動能型：完整保留「距高點差距%」欄位
         df_momentum = filtered_df[filtered_df['股性類別'] == "高動能型"].drop(columns=['股性類別']).reset_index(drop=True)
 
         st.markdown(f"#### 🏛️ 穩健權值 / 指數ETF型（日線敏捷出場 / 存債） ({len(df_steady)} 檔)")
@@ -978,7 +998,7 @@ with tab_war_room:
             st.info("目前無『醞釀向上』標的。")
         else:
             ev_up = st.dataframe(
-                style_dataframe(df_up.drop(columns=['股性類別'])), use_container_width=True, 
+                style_dataframe(df_up.drop(columns=['股性類別', '距高點差距%'])), use_container_width=True, 
                 on_select="rerun", selection_mode="single-row", key="war_up",
                 column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
             )
@@ -990,7 +1010,7 @@ with tab_war_room:
             st.info("目前無『買入』標的。")
         else:
             ev_buy = st.dataframe(
-                style_dataframe(df_buy.drop(columns=['股性類別'])), use_container_width=True, 
+                style_dataframe(df_buy.drop(columns=['股性類別', '距高點差距%'])), use_container_width=True, 
                 on_select="rerun", selection_mode="single-row", key="war_buy",
                 column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
             )
@@ -1004,7 +1024,7 @@ with tab_war_room:
             st.info("目前無『醞釀向下』標的。")
         else:
             ev_down = st.dataframe(
-                style_dataframe(df_down.drop(columns=['股性類別'])), use_container_width=True, 
+                style_dataframe(df_down.drop(columns=['股性類別', '距高點差距%'])), use_container_width=True, 
                 on_select="rerun", selection_mode="single-row", key="war_down",
                 column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
             )
@@ -1014,7 +1034,7 @@ with tab_war_room:
         if not df_trim.empty:
             st.markdown(f"#### 第二步 A（動能型減碼防線 / 避險閘門）：🟠 建議減碼 ({len(df_trim)})")
             ev_trim = st.dataframe(
-                style_dataframe(df_trim.drop(columns=['股性類別'])), use_container_width=True,
+                style_dataframe(df_trim.drop(columns=['股性類別', '距高點差距%'])), use_container_width=True,
                 on_select="rerun", selection_mode="single-row", key="war_trim",
                 column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
             )
@@ -1026,7 +1046,7 @@ with tab_war_room:
             st.info("目前無『賣出』標的。")
         else:
             ev_sell = st.dataframe(
-                style_dataframe(df_sell.drop(columns=['股性類別'])), use_container_width=True, 
+                style_dataframe(df_sell.drop(columns=['股性類別', '距高點差距%'])), use_container_width=True, 
                 on_select="rerun", selection_mode="single-row", key="war_sell",
                 column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
             )
@@ -1038,7 +1058,7 @@ with tab_war_room:
             st.info("目前無『避免殺低』標的。")
         else:
             ev_hold = st.dataframe(
-                style_dataframe(df_hold.drop(columns=['股性類別'])), use_container_width=True, 
+                style_dataframe(df_hold.drop(columns=['股性類別', '距高點差距%'])), use_container_width=True, 
                 on_select="rerun", selection_mode="single-row", key="war_hold",
                 column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
             )
