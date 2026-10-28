@@ -145,10 +145,9 @@ with tab_rules:
     * **🚀 高動能波段型**：
         * **鎖定條件**：中小型科技股、高波動成長飆股（ATR% ≥ 3.5%）。
         * **進場條件**：長短線共振帶量買進（或打底起漲）。
-        * **出場機制**：啟動【週線雙死叉分批 ＋ 緊急避險閘門】：
-            1. **🚨 波段進場避險閘門**：自**買入確認點之後所創出的波段最高點**拉回 ≥ 15% 時，強制減碼 30% 鎖利保本。
-            2. **第一階段防線**：週 5W 跌破 10W 時，建議減碼剩餘部位之 50%。
-            3. **終極出清防線**：週 MACD 正式死叉時，全數出清剩餘持股。
+        * **出場機制**：啟動【週線雙死叉分批出場】：
+            1. **第一階段防線**：週 5W 跌破 10W 時，建議減碼 50% 鎖住部分利潤。
+            2. **終極出清防線**：週 MACD 正式死叉時，全數出清剩餘 50% 持股，無懼日線短期洗盤。
 
     ---
 
@@ -206,7 +205,7 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
             if df.empty or len(df) < 35:
                 results.append({
                     "代碼": ticker, "名稱": name, "收盤價(漲跌)": "⚠️ 無資料",
-                    "股性模式": "⚪ 未知", "股性類別": "未知", "距高點差距%": "-",
+                    "股性模式": "⚪ 未知", "股性類別": "未知",
                     "建議": "⚪ 未知", "最新動態": "-",
                     "詳細判定原因": "無足夠 K 線資料，請檢查代碼格式",
                     "Yahoo股市": f"https://finance.yahoo.com/quote/{ticker}"
@@ -271,29 +270,6 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
             lcl = ma20 - 2 * std20
             curr_ucl, curr_lcl = ucl.iloc[-1], lcl.iloc[-1]
 
-            # 以買進確認後創出的波段最高點計算回撤
-            hist_bull = (hist > 0) & (ma5 > ma10) & (volume > vol_ma5)
-            spc_bull = (close <= lcl) & (volume > vol_ma5 * 2) & (rsi < 30)
-            all_buy_signals = hist_bull | spc_bull
-
-            buy_indices = all_buy_signals[all_buy_signals].index
-            if not buy_indices.empty:
-                last_buy_date = buy_indices[-1]
-                peak_high = high.loc[last_buy_date:].max()
-                peak_date = high.loc[last_buy_date:].idxmax().strftime('%m/%d')
-            else:
-                lookback_len = min(30, len(high))
-                peak_high = high.tail(lookback_len).max()
-                peak_date = high.tail(lookback_len).idxmax().strftime('%m/%d')
-
-            drawdown_from_peak = ((peak_high - curr_close) / peak_high) * 100 if peak_high > 0 else 0
-            
-            # 格式化距高點差距字串
-            if is_high_momentum:
-                drawdown_display = f"-{drawdown_from_peak:.1f}% ({peak_high:.2f})"
-            else:
-                drawdown_display = "-"
-            
             curr_ma5, curr_ma10 = ma5.iloc[-1], ma10.iloc[-1]
             curr_ma20, prev_ma20 = ma20.iloc[-1], ma20.iloc[-2]
             curr_hist, prev_hist = hist.iloc[-1], hist.iloc[-2]
@@ -427,13 +403,10 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
                         if is_high_momentum:
                             if weekly_macd_dead:
                                 rec_text = "🔴 賣出 (動能出清)"
-                                detail_reason = f"【動能型終極出場】週MACD死叉確認大波段結束，建議出清剩餘部位。"
+                                detail_reason = f"【動能型終極出場】週MACD死叉確認大波段結束，建議出清剩餘 50% 部位。"
                             elif weekly_ma_dead:
                                 rec_text = "🟠 減碼 (週MA死叉)"
                                 detail_reason = f"【動能型第一防線】週5W跌破10W，先行減碼 50% 鎖住利潤，其餘等週MACD確認。"
-                            elif drawdown_from_peak >= 15.0:
-                                rec_text = "🟠 緊急減碼30% (高點回跌15%)"
-                                detail_reason = f"【波段避險閘門】自買進後波段高點 {peak_high:.2f}({peak_date}) 回跌達 {drawdown_from_peak:.1f}% (≥15%)，強制減碼 30% 保本鎖利。"
                             else:
                                 rec_text = "🟡 觀察 (抱牢主升)"
                                 detail_reason = f"【動能型抱牢】日線震盪洗盤，但週線 5W>10W 且 MACD>0，無懼短線波動續抱。"
@@ -446,10 +419,7 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
                                 detail_reason = f"【防守延遲】日線翻空，但週線DIF仍上升，暫緩賣出。"
                 else:
                     rec_text = "🟡 觀察"
-                    if is_high_momentum and drawdown_from_peak >= 15.0:
-                        rec_text = "🟠 緊急減碼30% (高點回跌15%)"
-                        detail_reason = f"【波段避險閘門】指標分歧且自波段高點 {peak_high:.2f}({peak_date}) 回跌達 {drawdown_from_peak:.1f}%，建議先減碼 30% 防守。"
-                    elif not weekly_dif_decreasing and curr_hist < 0:
+                    if not weekly_dif_decreasing and curr_hist < 0:
                         detail_reason = f"【方向分歧】指標偏空，但週線DIF仍上升，暫緩防守。"
                     else:
                         detail_reason = f"【方向分歧】{macd_text} 但 {ma_text}，指標未同步。"
@@ -477,7 +447,6 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
                 "代碼": ticker, 
                 "名稱": name, 
                 "收盤價(漲跌)": price_display,
-                "距高點差距%": drawdown_display,
                 "股性模式": stock_profile,
                 "股性類別": stock_category,
                 "建議": rec_text,
@@ -488,7 +457,7 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
         except Exception: 
             results.append({
                 "代碼": ticker, "名稱": name, "收盤價(漲跌)": "⚠️ 錯誤",
-                "股性模式": "⚪ 異常", "股性類別": "未知", "距高點差距%": "-",
+                "股性模式": "⚪ 異常", "股性類別": "未知",
                 "建議": "⚪ 未知", "最新動態": "-",
                 "詳細判定原因": "抓取過程發生異常，請稍後刷新",
                 "Yahoo股市": f"https://finance.yahoo.com/quote/{ticker}"
@@ -565,11 +534,9 @@ def calculate_win_rate(ticker, name, interval):
         trades, wins = 0, 0
         holding = False
         buy_price = 0
-        peak_since_entry = 0.0
         
         for i in range(20, len(close)):
             curr_close = close.iloc[i]
-            curr_high = high.iloc[i]
             curr_ma5, curr_ma10 = ma5.iloc[i], ma10.iloc[i]
             curr_hist = hist.iloc[i]
             curr_vol, curr_vol_ma5 = volume.iloc[i], vol_ma5.iloc[i]
@@ -581,24 +548,18 @@ def calculate_win_rate(ticker, name, interval):
             if not holding and target_position == 100 and vol_condition:
                 holding = True
                 buy_price = curr_close
-                peak_since_entry = curr_high
             elif holding:
-                if curr_high > peak_since_entry:
-                    peak_since_entry = curr_high
-                
-                drawdown = ((peak_since_entry - curr_close) / peak_since_entry) * 100 if peak_since_entry > 0 else 0
-                
                 should_exit = False
                 if is_cash_bond:
                     should_exit = False
                 elif not is_etf_or_index and curr_atr_pct >= 3.5:
-                    if drawdown >= 15.0:
-                        should_exit = True
-                    elif interval == '1d':
+                    # 高動能型：純週線雙死叉出場
+                    if interval == '1d':
                         should_exit = (w_hist_aligned.iloc[i] <= 0) and (w_ma5_aligned.iloc[i] < w_ma10_aligned.iloc[i])
                     else:
                         should_exit = (hist.iloc[i] <= 0) and (ma5.iloc[i] < ma10.iloc[i])
                 else:
+                    # 穩健型：日線敏捷出場
                     if interval == '1d':
                         should_exit = (target_position == 0) and bool(wdif_dec_aligned.iloc[i])
                     else:
@@ -633,25 +594,14 @@ def style_dataframe(df):
             elif '🏛️' in val: return 'color: #1976d2; font-weight: bold;'
             elif '💰' in val: return 'color: #2e7d32; font-weight: bold;'
         return ''
-    def color_drawdown(val):
-        if isinstance(val, str) and val.startswith('-'):
-            try:
-                num = float(val.split('%')[0].replace('-', ''))
-                if num >= 15.0: return 'color: #d32f2f; font-weight: bold; background-color: #ffebee;'
-                elif num >= 12.0: return 'color: #f57c00; font-weight: bold;'
-            except Exception:
-                pass
-        return ''
         
     res = df.style
     if hasattr(res, "map"):
         if '收盤價(漲跌)' in df.columns: res = res.map(color_trend, subset=['收盤價(漲跌)'])
         if '股性模式' in df.columns: res = res.map(color_profile, subset=['股性模式'])
-        if '距高點差距%' in df.columns: res = res.map(color_drawdown, subset=['距高點差距%'])
     else:
         if '收盤價(漲跌)' in df.columns: res = res.applymap(color_trend, subset=['收盤價(漲跌)'])
         if '股性模式' in df.columns: res = res.applymap(color_profile, subset=['股性模式'])
-        if '距高點差距%' in df.columns: res = res.applymap(color_drawdown, subset=['距高點差距%'])
     return res
 
 @st.cache_data(ttl=300)
@@ -802,9 +752,7 @@ with tab_dashboard:
         # ==========================================
         # 依股性分區塊獨立呈現 (穩健型 vs 高動能型)
         # ==========================================
-        # 穩健型：不需顯示「距高點差距%」與內部用「股性類別」
-        df_steady = filtered_df[filtered_df['股性類別'] == "穩健型"].drop(columns=['股性類別', '距高點差距%']).reset_index(drop=True)
-        # 高動能型：完整保留「距高點差距%」欄位
+        df_steady = filtered_df[filtered_df['股性類別'] == "穩健型"].drop(columns=['股性類別']).reset_index(drop=True)
         df_momentum = filtered_df[filtered_df['股性類別'] == "高動能型"].drop(columns=['股性類別']).reset_index(drop=True)
 
         st.markdown(f"#### 🏛️ 穩健權值 / 指數ETF型（日線敏捷出場 / 存債） ({len(df_steady)} 檔)")
@@ -824,7 +772,7 @@ with tab_dashboard:
                 st.session_state.selected_ticker = df_steady.iloc[selected_row_idx]['代碼']
 
         st.write("")
-        st.markdown(f"#### 🚀 高動能波段型（買進後高點回跌15%避險 ＋ 週線雙死叉） ({len(df_momentum)} 檔)")
+        st.markdown(f"#### 🚀 高動能波段型（週線雙死叉分批出場） ({len(df_momentum)} 檔)")
         if df_momentum.empty:
             st.info("目前無符合篩選條件的高動能型標的。")
         else:
@@ -854,7 +802,7 @@ with tab_dashboard:
                         
                         if backtest_results:
                             st.dataframe(pd.DataFrame(backtest_results), use_container_width=True)
-                            st.caption("※ 回測邏輯：動能型標的依『買進後高點回跌 15% 避險 + 週線雙死叉』出場；穩健型依日線敏捷出場。")
+                            st.caption("※ 回測邏輯：動能型標的依週線雙死叉出場；穩健型依日線敏捷出場。")
                         else:
                             st.error("無法取得回測資料。")
 
@@ -998,7 +946,7 @@ with tab_war_room:
             st.info("目前無『醞釀向上』標的。")
         else:
             ev_up = st.dataframe(
-                style_dataframe(df_up.drop(columns=['股性類別', '距高點差距%'])), use_container_width=True, 
+                style_dataframe(df_up.drop(columns=['股性類別'])), use_container_width=True, 
                 on_select="rerun", selection_mode="single-row", key="war_up",
                 column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
             )
@@ -1010,7 +958,7 @@ with tab_war_room:
             st.info("目前無『買入』標的。")
         else:
             ev_buy = st.dataframe(
-                style_dataframe(df_buy.drop(columns=['股性類別', '距高點差距%'])), use_container_width=True, 
+                style_dataframe(df_buy.drop(columns=['股性類別'])), use_container_width=True, 
                 on_select="rerun", selection_mode="single-row", key="war_buy",
                 column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
             )
@@ -1024,7 +972,7 @@ with tab_war_room:
             st.info("目前無『醞釀向下』標的。")
         else:
             ev_down = st.dataframe(
-                style_dataframe(df_down.drop(columns=['股性類別', '距高點差距%'])), use_container_width=True, 
+                style_dataframe(df_down.drop(columns=['股性類別'])), use_container_width=True, 
                 on_select="rerun", selection_mode="single-row", key="war_down",
                 column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
             )
@@ -1032,9 +980,9 @@ with tab_war_room:
                 st.session_state.selected_ticker = df_down.iloc[ev_down.selection.rows[0]]['代碼']
 
         if not df_trim.empty:
-            st.markdown(f"#### 第二步 A（動能型減碼防線 / 避險閘門）：🟠 建議減碼 ({len(df_trim)})")
+            st.markdown(f"#### 第二步 A（動能型減碼防線）：🟠 建議減碼50% ({len(df_trim)})")
             ev_trim = st.dataframe(
-                style_dataframe(df_trim.drop(columns=['股性類別', '距高點差距%'])), use_container_width=True,
+                style_dataframe(df_trim.drop(columns=['股性類別'])), use_container_width=True,
                 on_select="rerun", selection_mode="single-row", key="war_trim",
                 column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
             )
@@ -1046,7 +994,7 @@ with tab_war_room:
             st.info("目前無『賣出』標的。")
         else:
             ev_sell = st.dataframe(
-                style_dataframe(df_sell.drop(columns=['股性類別', '距高點差距%'])), use_container_width=True, 
+                style_dataframe(df_sell.drop(columns=['股性類別'])), use_container_width=True, 
                 on_select="rerun", selection_mode="single-row", key="war_sell",
                 column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
             )
@@ -1058,7 +1006,7 @@ with tab_war_room:
             st.info("目前無『避免殺低』標的。")
         else:
             ev_hold = st.dataframe(
-                style_dataframe(df_hold.drop(columns=['股性類別', '距高點差距%'])), use_container_width=True, 
+                style_dataframe(df_hold.drop(columns=['股性類別'])), use_container_width=True, 
                 on_select="rerun", selection_mode="single-row", key="war_hold",
                 column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
             )
