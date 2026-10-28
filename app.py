@@ -145,7 +145,10 @@ with tab_rules:
     * **🚀 高動能波段型**：
         * **鎖定條件**：中小型科技股、高波動成長飆股（ATR% ≥ 3.5%）。
         * **進場條件**：長短線共振帶量買進（或打底起漲）。
-        * **出場機制**：啟動【週線雙死叉分批】。週 5W 跌破 10W 建議減碼 50%；週 MACD 正式死叉時出清剩餘 50%，以抗震耐震咬滿主升段。
+        * **出場機制**：啟動【週線雙死叉分批 ＋ 緊急避險閘門】：
+            1. **🚨 緊急避險閘門**：股價自波段高點拉回 $\ge 15\%$ 時，強制減碼 30% 鎖利保本。
+            2. **第一階段防線**：週 5W 跌破 10W 時，建議減碼剩餘部位之 50%。
+            3. **終極出清防線**：週 MACD 正式死叉時，全數出清剩餘持股。
 
     ---
 
@@ -242,6 +245,11 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
             else:
                 is_high_momentum = (atr_pct >= 3.5)
                 stock_profile = f"🚀 動能({atr_pct:.1f}%)" if is_high_momentum else f"🏛️ 穩健({atr_pct:.1f}%)"
+            
+            # 計算近 30 根 K 線波段高點回檔幅度
+            lookback_len = min(30, len(high))
+            peak_high = high.tail(lookback_len).max()
+            drawdown_from_peak = ((peak_high - curr_close) / peak_high) * 100 if peak_high > 0 else 0
             
             ma5, ma10, ma20 = close.rolling(5).mean(), close.rolling(10).mean(), close.rolling(20).mean()
             vol_ma5 = volume.rolling(5).mean()
@@ -400,10 +408,13 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
                         if is_high_momentum:
                             if weekly_macd_dead:
                                 rec_text = "🔴 賣出 (動能出清)"
-                                detail_reason = f"【動能型終極出場】週MACD死叉確認大波段結束，建議出清剩餘 50% 部位。"
+                                detail_reason = f"【動能型終極出場】週MACD死叉確認大波段結束，建議出清剩餘部位。"
                             elif weekly_ma_dead:
                                 rec_text = "🟠 減碼 (週MA死叉)"
-                                detail_reason = f"【動能型第一防線】週5W跌破10W，先行減碼 50% 鎖住利潤，其餘 50% 等週MACD確認。"
+                                detail_reason = f"【動能型第一防線】週5W跌破10W，先行減碼 50% 鎖住利潤，其餘等週MACD確認。"
+                            elif drawdown_from_peak >= 15.0:
+                                rec_text = "🟠 緊急減碼30% (高點回跌15%)"
+                                detail_reason = f"【高檔避險閘門】自波段最高 {peak_high:.2f} 回跌達 {drawdown_from_peak:.1f}% (≥15%)，強制減碼 30% 保本鎖利。"
                             else:
                                 rec_text = "🟡 觀察 (抱牢主升)"
                                 detail_reason = f"【動能型抱牢】日線震盪洗盤，但週線 5W>10W 且 MACD>0，無懼短線波動續抱。"
@@ -416,7 +427,11 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
                                 detail_reason = f"【防守延遲】日線翻空，但週線DIF仍上升，暫緩賣出。"
                 else:
                     rec_text = "🟡 觀察"
-                    if not weekly_dif_decreasing and curr_hist < 0:
+                    # 動能型在多空分歧但已自高點拉回 15% 時，亦同步觸發避險閘門
+                    if is_high_momentum and drawdown_from_peak >= 15.0:
+                        rec_text = "🟠 緊急減碼30% (高點回跌15%)"
+                        detail_reason = f"【高檔避險閘門】指標分歧且自最高 {peak_high:.2f} 回跌達 {drawdown_from_peak:.1f}%，建議先減碼 30% 防守。"
+                    elif not weekly_dif_decreasing and curr_hist < 0:
                         detail_reason = f"【方向分歧】指標偏空，但週線DIF仍上升，暫緩防守。"
                     else:
                         detail_reason = f"【方向分歧】{macd_text} 但 {ma_text}，指標未同步。"
@@ -951,7 +966,7 @@ with tab_war_room:
                 st.session_state.selected_ticker = df_down.iloc[ev_down.selection.rows[0]]['代碼']
 
         if not df_trim.empty:
-            st.markdown(f"#### 第二步 A（動能型減碼防線）：🟠 建議減碼50% ({len(df_trim)})")
+            st.markdown(f"#### 第二步 A（動能型減碼防線 / 避險閘門）：🟠 建議減碼 ({len(df_trim)})")
             ev_trim = st.dataframe(
                 style_dataframe(df_trim), use_container_width=True,
                 on_select="rerun", selection_mode="single-row", key="war_trim",
