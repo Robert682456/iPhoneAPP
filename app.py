@@ -146,7 +146,7 @@ with tab_rules:
         * **鎖定條件**：中小型科技股、高波動成長飆股（ATR% ≥ 3.5%）。
         * **進場條件**：長短線共振帶量買進（或打底起漲）。
         * **出場機制**：啟動【週線雙死叉分批 ＋ 緊急避險閘門】：
-            1. **🚨 緊急避險閘門**：股價自波段高點拉回 $\ge 15\%$ 時，強制減碼 30% 鎖利保本。
+            1. **🚨 波段進場避險閘門**：自**買入確認點之後所創出的波段最高點**拉回 ≥ 15% 時，強制減碼 30% 鎖利保本。
             2. **第一階段防線**：週 5W 跌破 10W 時，建議減碼剩餘部位之 50%。
             3. **終極出清防線**：週 MACD 正式死叉時，全數出清剩餘持股。
 
@@ -246,11 +246,6 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
                 is_high_momentum = (atr_pct >= 3.5)
                 stock_profile = f"🚀 動能({atr_pct:.1f}%)" if is_high_momentum else f"🏛️ 穩健({atr_pct:.1f}%)"
             
-            # 計算近 30 根 K 線波段高點回檔幅度
-            lookback_len = min(30, len(high))
-            peak_high = high.tail(lookback_len).max()
-            drawdown_from_peak = ((peak_high - curr_close) / peak_high) * 100 if peak_high > 0 else 0
-            
             ma5, ma10, ma20 = close.rolling(5).mean(), close.rolling(10).mean(), close.rolling(20).mean()
             vol_ma5 = volume.rolling(5).mean()
             
@@ -267,6 +262,33 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
             rs = ema_gain / ema_loss
             rsi = 100 - (100 / (1 + rs))
             curr_rsi = rsi.iloc[-1]
+
+            std20 = close.rolling(20).std()
+            ucl = ma20 + 2 * std20
+            lcl = ma20 - 2 * std20
+            curr_ucl, curr_lcl = ucl.iloc[-1], lcl.iloc[-1]
+
+            # ==========================================
+            # 精確追蹤：以「買進確認後」創出的波段最高點計算回撤
+            # ==========================================
+            # 判定歷史上各根 K 線是否符合買進確認 (雙多頭且帶量 或 SPC爆量超跌)
+            hist_bull = (hist > 0) & (ma5 > ma10) & (volume > vol_ma5)
+            spc_bull = (close <= lcl) & (volume > vol_ma5 * 2) & (rsi < 30)
+            all_buy_signals = hist_bull | spc_bull
+
+            buy_indices = all_buy_signals[all_buy_signals].index
+            if not buy_indices.empty:
+                last_buy_date = buy_indices[-1]
+                # 自買進確認當日開始取最高點
+                peak_high = high.loc[last_buy_date:].max()
+                peak_date = high.loc[last_buy_date:].idxmax().strftime('%m/%d')
+            else:
+                # 若歷史未有買訊，則以近 30 根 K 線最高作為防呆基準
+                lookback_len = min(30, len(high))
+                peak_high = high.tail(lookback_len).max()
+                peak_date = high.tail(lookback_len).idxmax().strftime('%m/%d')
+
+            drawdown_from_peak = ((peak_high - curr_close) / peak_high) * 100 if peak_high > 0 else 0
             
             curr_ma5, curr_ma10 = ma5.iloc[-1], ma10.iloc[-1]
             curr_ma20, prev_ma20 = ma20.iloc[-1], ma20.iloc[-2]
@@ -284,11 +306,6 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
                 curr_dif_w_val, prev_dif_w_val = curr_dif, prev_dif
                 weekly_ma_dead = (curr_ma5 < curr_ma10) and (ma5.iloc[-2] >= ma10.iloc[-2])
                 weekly_macd_dead = (curr_hist <= 0) and (prev_hist > 0)
-
-            std20 = close.rolling(20).std()
-            ucl = ma20 + 2 * std20
-            lcl = ma20 - 2 * std20
-            curr_ucl, curr_lcl = ucl.iloc[-1], lcl.iloc[-1]
 
             vol_condition = curr_vol > curr_vol_ma5  
             
@@ -414,7 +431,7 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
                                 detail_reason = f"【動能型第一防線】週5W跌破10W，先行減碼 50% 鎖住利潤，其餘等週MACD確認。"
                             elif drawdown_from_peak >= 15.0:
                                 rec_text = "🟠 緊急減碼30% (高點回跌15%)"
-                                detail_reason = f"【高檔避險閘門】自波段最高 {peak_high:.2f} 回跌達 {drawdown_from_peak:.1f}% (≥15%)，強制減碼 30% 保本鎖利。"
+                                detail_reason = f"【波段避險閘門】自買進後波段高點 {peak_high:.2f}({peak_date}) 回跌達 {drawdown_from_peak:.1f}% (≥15%)，強制減碼 30% 保本鎖利。"
                             else:
                                 rec_text = "🟡 觀察 (抱牢主升)"
                                 detail_reason = f"【動能型抱牢】日線震盪洗盤，但週線 5W>10W 且 MACD>0，無懼短線波動續抱。"
@@ -427,10 +444,10 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
                                 detail_reason = f"【防守延遲】日線翻空，但週線DIF仍上升，暫緩賣出。"
                 else:
                     rec_text = "🟡 觀察"
-                    # 動能型在多空分歧但已自高點拉回 15% 時，亦同步觸發避險閘門
+                    # 動能型在多空分歧但已自買進後高點拉回 15% 時，亦同步觸發避險閘門
                     if is_high_momentum and drawdown_from_peak >= 15.0:
                         rec_text = "🟠 緊急減碼30% (高點回跌15%)"
-                        detail_reason = f"【高檔避險閘門】指標分歧且自最高 {peak_high:.2f} 回跌達 {drawdown_from_peak:.1f}%，建議先減碼 30% 防守。"
+                        detail_reason = f"【波段避險閘門】指標分歧且自波段高點 {peak_high:.2f}({peak_date}) 回跌達 {drawdown_from_peak:.1f}%，建議先減碼 30% 防守。"
                     elif not weekly_dif_decreasing and curr_hist < 0:
                         detail_reason = f"【方向分歧】指標偏空，但週線DIF仍上升，暫緩防守。"
                     else:
@@ -547,9 +564,11 @@ def calculate_win_rate(ticker, name, interval):
         trades, wins = 0, 0
         holding = False
         buy_price = 0
+        peak_since_entry = 0.0
         
         for i in range(20, len(close)):
             curr_close = close.iloc[i]
+            curr_high = high.iloc[i]
             curr_ma5, curr_ma10 = ma5.iloc[i], ma10.iloc[i]
             curr_hist = hist.iloc[i]
             curr_vol, curr_vol_ma5 = volume.iloc[i], vol_ma5.iloc[i]
@@ -561,12 +580,21 @@ def calculate_win_rate(ticker, name, interval):
             if not holding and target_position == 100 and vol_condition:
                 holding = True
                 buy_price = curr_close
+                peak_since_entry = curr_high
             elif holding:
+                if curr_high > peak_since_entry:
+                    peak_since_entry = curr_high
+                
+                drawdown = ((peak_since_entry - curr_close) / peak_since_entry) * 100 if peak_since_entry > 0 else 0
+                
                 should_exit = False
                 if is_cash_bond:
                     should_exit = False
                 elif not is_etf_or_index and curr_atr_pct >= 3.5:
-                    if interval == '1d':
+                    # 動能型：避險閘門 (-15%) 或 週線雙死叉
+                    if drawdown >= 15.0:
+                        should_exit = True
+                    elif interval == '1d':
                         should_exit = (w_hist_aligned.iloc[i] <= 0) and (w_ma5_aligned.iloc[i] < w_ma10_aligned.iloc[i])
                     else:
                         should_exit = (hist.iloc[i] <= 0) and (ma5.iloc[i] < ma10.iloc[i])
@@ -788,7 +816,7 @@ with tab_dashboard:
                         
                         if backtest_results:
                             st.dataframe(pd.DataFrame(backtest_results), use_container_width=True)
-                            st.caption("※ 回測邏輯：動能型標的依週線雙死叉出場，穩健型標的（含ETF/指數）依日線敏捷出場。")
+                            st.caption("※ 回測邏輯：動能型標的依『買進後高點回跌 15% 避險 + 週線雙死叉』出場；穩健型依日線敏捷出場。")
                         else:
                             st.error("無法取得回測資料。")
 
