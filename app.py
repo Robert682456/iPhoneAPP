@@ -13,54 +13,12 @@ st.set_page_config(page_title="雙指標波段系統", page_icon="📈", layout=
 st_autorefresh(interval=5 * 60 * 1000, key="auto_refresh")
 
 # ==========================================
-# 本機設定檔存取邏輯 (狀態記憶功能)
+# 本機設定檔存取邏輯 (支援 3 組自選股)
 # ==========================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SETTINGS_FILE = os.path.join(BASE_DIR, "user_settings.json")
 
-def load_settings():
-    if os.path.exists(SETTINGS_FILE):
-        try:
-            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {"search_ticker": "", "search_name": "", "market_ticker": "0050.TW"}
-
-def save_settings():
-    settings = {
-        "search_ticker": st.session_state.search_ticker,
-        "search_name": st.session_state.search_name,
-        "market_ticker": st.session_state.get("market_ticker_input", "0050.TW")
-    }
-    try:
-        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
-            json.dump(settings, f, ensure_ascii=False)
-    except Exception:
-        pass
-
-# 初始化 Session State
-settings = load_settings()
-
-if 'selected_ticker' not in st.session_state:
-    st.session_state.selected_ticker = None
-if 'search_ticker' not in st.session_state:
-    st.session_state.search_ticker = settings.get("search_ticker", "")
-if 'search_name' not in st.session_state:
-    st.session_state.search_name = settings.get("search_name", "")
-if 'market_ticker_input' not in st.session_state:
-    st.session_state.market_ticker_input = settings.get("market_ticker", "0050.TW")
-
-def update_selected_from_search():
-    val = st.session_state.search_ticker.strip().upper()
-    if val:
-        st.session_state.selected_ticker = val
-    save_settings()
-
-def update_other_inputs():
-    save_settings()
-
-DEFAULT_LIST = """0050.TW,元大台灣50
+DEFAULT_LIST_1 = """0050.TW,元大台灣50
 2812.TW,台中銀
 1101.TW,台泥
 2330.TW,台積電
@@ -87,8 +45,93 @@ SGOV,SGOV美債
 1216.TW,統一
 3406.TW,玉晶光"""
 
-if 'watchlist_text' not in st.session_state:
-    st.session_state.watchlist_text = DEFAULT_LIST
+DEFAULT_LIST_2 = """2330.TW,台積電
+2454.TW,聯發科
+2317.TW,鴻海
+2382.TW,廣達
+3231.TW,緯創
+2308.TW,台達電
+6669.TW,緯穎
+3017.TW,奇鋐"""
+
+DEFAULT_LIST_3 = """0050.TW,元大台灣50
+0056.TW,元大高股息
+00878.TW,國泰永續高股息
+VOO,VOO標普500
+QQQM,QQQM納指100
+SGOV,SGOV美債
+00719B.TW,富邦美債1-3"""
+
+def load_settings():
+    if os.path.exists(SETTINGS_FILE):
+        try:
+            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {
+        "search_ticker": "",
+        "search_name": "",
+        "market_ticker": "0050.TW",
+        "current_group": "自選股 1",
+        "watchlist_1": DEFAULT_LIST_1,
+        "watchlist_2": DEFAULT_LIST_2,
+        "watchlist_3": DEFAULT_LIST_3
+    }
+
+def save_settings():
+    settings = {
+        "search_ticker": st.session_state.search_ticker,
+        "search_name": st.session_state.search_name,
+        "market_ticker": st.session_state.get("market_ticker_input", "0050.TW"),
+        "current_group": st.session_state.get("current_group_choice", "自選股 1"),
+        "watchlist_1": st.session_state.get("watchlist_1_text", DEFAULT_LIST_1),
+        "watchlist_2": st.session_state.get("watchlist_2_text", DEFAULT_LIST_2),
+        "watchlist_3": st.session_state.get("watchlist_3_text", DEFAULT_LIST_3)
+    }
+    try:
+        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(settings, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+# 初始化 Session State
+settings = load_settings()
+
+if 'selected_ticker' not in st.session_state:
+    st.session_state.selected_ticker = None
+if 'search_ticker' not in st.session_state:
+    st.session_state.search_ticker = settings.get("search_ticker", "")
+if 'search_name' not in st.session_state:
+    st.session_state.search_name = settings.get("search_name", "")
+if 'market_ticker_input' not in st.session_state:
+    st.session_state.market_ticker_input = settings.get("market_ticker", "0050.TW")
+if 'current_group_choice' not in st.session_state:
+    st.session_state.current_group_choice = settings.get("current_group", "自選股 1")
+if 'watchlist_1_text' not in st.session_state:
+    st.session_state.watchlist_1_text = settings.get("watchlist_1", DEFAULT_LIST_1)
+if 'watchlist_2_text' not in st.session_state:
+    st.session_state.watchlist_2_text = settings.get("watchlist_2", DEFAULT_LIST_2)
+if 'watchlist_3_text' not in st.session_state:
+    st.session_state.watchlist_3_text = settings.get("watchlist_3", DEFAULT_LIST_3)
+
+def update_selected_from_search():
+    val = st.session_state.search_ticker.strip().upper()
+    if val:
+        st.session_state.selected_ticker = val
+    save_settings()
+
+def update_other_inputs():
+    save_settings()
+
+# 解析字串為字典的公用函數
+def parse_watchlist(text):
+    watchlist = {}
+    for line in text.strip().split('\n'):
+        if ',' in line:
+            ticker, name = line.split(',', 1)
+            watchlist[ticker.strip()] = name.strip()
+    return watchlist
 
 # --- 隱藏 Streamlit 預設選單與浮水印 ---
 hide_st_style = """
@@ -109,19 +152,39 @@ tab_dashboard, tab_rules, tab_settings, tab_war_room = st.tabs(["📊 看盤儀�
 display_df = pd.DataFrame()
 
 # ==========================================
-# 分頁 3：自選股編輯頁面
+# 分頁 3：自選股編輯頁面 (支援 3 組切換編輯)
 # ==========================================
 with tab_settings:
-    st.subheader("⚙️ 編輯自選股清單")
-    st.markdown("請依照 `代碼,名稱` 的格式輸入，每行一檔標的。修改後會自動儲存並套用至儀表板。")
-    user_input = st.text_area("📝 編輯清單：", st.session_state.watchlist_text, height=500)
-    st.session_state.watchlist_text = user_input
+    st.subheader("⚙️ 編輯自選股清單（支援 3 組股票組合）")
+    st.markdown("請依照 `代碼,名稱` 的格式輸入，每行一檔標的。修改後會自動儲存並同步套用。")
     
-    WATCHLIST = {}
-    for line in user_input.strip().split('\n'):
-        if ',' in line:
-            ticker, name = line.split(',', 1)
-            WATCHLIST[ticker.strip()] = name.strip()
+    edit_tab1, edit_tab2, edit_tab3 = st.tabs(["📁 自選股 1 (標準預設)", "📁 自選股 2", "📁 自選股 3"])
+    
+    with edit_tab1:
+        u_input1 = st.text_area("📝 編輯自選股 1 清單：", st.session_state.watchlist_1_text, height=450, key="text_edit_1")
+        if u_input1 != st.session_state.watchlist_1_text:
+            st.session_state.watchlist_1_text = u_input1
+            save_settings()
+            
+    with edit_tab2:
+        u_input2 = st.text_area("📝 編輯自選股 2 清單：", st.session_state.watchlist_2_text, height=450, key="text_edit_2")
+        if u_input2 != st.session_state.watchlist_2_text:
+            st.session_state.watchlist_2_text = u_input2
+            save_settings()
+            
+    with edit_tab3:
+        u_input3 = st.text_area("📝 編輯自選股 3 清單：", st.session_state.watchlist_3_text, height=450, key="text_edit_3")
+        if u_input3 != st.session_state.watchlist_3_text:
+            st.session_state.watchlist_3_text = u_input3
+            save_settings()
+
+# 取得當前選取的自選股清單
+if st.session_state.current_group_choice == "自選股 2":
+    ACTIVE_WATCHLIST = parse_watchlist(st.session_state.watchlist_2_text)
+elif st.session_state.current_group_choice == "自選股 3":
+    ACTIVE_WATCHLIST = parse_watchlist(st.session_state.watchlist_3_text)
+else:
+    ACTIVE_WATCHLIST = parse_watchlist(st.session_state.watchlist_1_text)
 
 # ==========================================
 # 分頁 2：策略判斷原則
@@ -167,7 +230,7 @@ with tab_rules:
     """)
 
 # ==========================================
-# 核心函數定義區：全週期綜合運算（產生唯一建議）
+# 核心函數定義區
 # ==========================================
 @st.cache_data(ttl=300)
 def get_market_trend(ticker):
@@ -195,16 +258,12 @@ def get_market_trend(ticker):
 
 @st.cache_data(ttl=300)
 def analyze_signals_comprehensive(watchlist):
-    """
-    綜合計算：無論選哪種圖表，一律由日線與週線共同決策，確保每檔股票只產出一個唯一建議。
-    """
     results = []
     CASH_BOND_LIST = {"SGOV", "BIL", "SHV", "00719B.TW"}
     ETF_WHITE_LIST = {"0050.TW", "VOO", "QQQM", "SPY", "IVV", "0056.TW", "00878.TW", "00919.TW"}
 
     for ticker, name in watchlist.items():
         try:
-            # 1. 抓取日線數據
             df_d = yf.download(ticker, period="1y", interval="1d", progress=False)
             if df_d.empty or len(df_d) < 35:
                 results.append({
@@ -222,12 +281,10 @@ def analyze_signals_comprehensive(watchlist):
             volume_d = df_d['Volume'][ticker] if isinstance(df_d.columns, pd.MultiIndex) else df_d['Volume']
             close_d, high_d, low_d, volume_d = close_d.dropna(), high_d.dropna(), low_d.dropna(), volume_d.dropna()
 
-            # 2. 抓取週線數據
             df_w = yf.download(ticker, period="2y", interval="1wk", progress=False)
             close_w = df_w['Close'][ticker] if isinstance(df_w.columns, pd.MultiIndex) else df_w['Close']
             close_w = close_w.dropna()
             
-            # --- 股性指標計算 (以日線為基準) ---
             tr1 = high_d - low_d
             tr2 = (high_d - close_d.shift(1)).abs()
             tr3 = (low_d - close_d.shift(1)).abs()
@@ -257,13 +314,11 @@ def analyze_signals_comprehensive(watchlist):
                 stock_profile = f"🚀 動能({atr_pct:.1f}%)" if is_high_momentum else f"🏛️ 穩健({atr_pct:.1f}%)"
                 stock_category = "高動能型" if is_high_momentum else "穩健型"
 
-            # --- 近 1 年歷史位階百分位 ---
             high_1y = high_d.tail(250).max()
             low_1y = low_d.tail(250).min()
             percentile_1y = ((curr_close - low_1y) / (high_1y - low_1y)) * 100 if high_1y > low_1y else 50.0
             is_relative_low = (percentile_1y <= 25.0)
 
-            # --- 日線技術指標 ---
             ma5_d, ma10_d, ma20_d = close_d.rolling(5).mean(), close_d.rolling(10).mean(), close_d.rolling(20).mean()
             vol_ma5_d = volume_d.rolling(5).mean()
             ema12_d, ema26_d = close_d.ewm(span=12, adjust=False).mean(), close_d.ewm(span=26, adjust=False).mean()
@@ -284,7 +339,6 @@ def analyze_signals_comprehensive(watchlist):
             curr_hist_d, prev_hist_d = hist_d.iloc[-1], hist_d.iloc[-2]
             curr_vol_d, curr_vol_ma5_d = volume_d.iloc[-1], vol_ma5_d.iloc[-1]
 
-            # --- 週線技術指標 ---
             if len(close_w) >= 35:
                 ma5_w, ma10_w = close_w.rolling(5).mean(), close_w.rolling(10).mean()
                 ema12_w, ema26_w = close_w.ewm(span=12, adjust=False).mean(), close_w.ewm(span=26, adjust=False).mean()
@@ -312,7 +366,6 @@ def analyze_signals_comprehensive(watchlist):
                 is_weekly_bullish = True
                 w_close, w_ma5, w_hist, w_prev_hist, w_rsi = curr_close, curr_ma5_d, curr_hist_d, prev_hist_d, curr_rsi_d
 
-            # 漲跌幅顯示
             change_pct = ((curr_close - prev_close) / prev_close) * 100
             if change_pct > 0: price_display = f"🔺 {curr_close:.2f} (+{change_pct:.2f}%)"
             elif change_pct < 0: price_display = f"🔻 {curr_close:.2f} ({change_pct:.2f}%)"
@@ -327,22 +380,17 @@ def analyze_signals_comprehensive(watchlist):
             elif prev_hist_d >= 0 and curr_hist_d < 0:
                 actions.append(f"日MACD剛死叉 ({last_date_str})")
 
-            # 核心條件整合
             target_pos_d = (50 if curr_hist_d > 0 else 0) + (50 if curr_ma5_d > curr_ma10_d else 0)
             vol_condition_d = curr_vol_d > curr_vol_ma5_d
             
-            # 週線大底特徵 (最高優先打底獵物)
             is_weekly_bottom_forming = (w_hist < 0 and w_hist > w_prev_hist) or (w_close > w_ma5 and w_hist < 0) or (w_rsi <= 40)
             is_daily_launching = (curr_close > curr_ma5_d) and (curr_hist_d > prev_hist_d)
 
-            # ==========================================
             # 綜合唯一建議判定
-            # ==========================================
             if is_cash_bond:
                 rec_text = "🔵 長期持有 (領息)"
                 detail_reason = "【免出場存債模式】純收息超短債資產，波動極低且穩定配息，免受波段指標干擾，建議長期續抱。"
             else:
-                # 1. 順勢共振買點 (長短線皆翻多帶量)
                 if target_pos_d == 100 and vol_condition_d:
                     if not is_weekly_bullish:
                         rec_text = "🟡 觀察"
@@ -351,14 +399,12 @@ def analyze_signals_comprehensive(watchlist):
                         rec_text = "🟢 買入"
                         detail_reason = "【長短線共振帶量】週線維持長多，日線雙指標翻多且成交量超越5日均量！"
                 
-                # 2. 空方／出場訊號過濾
                 elif target_pos_d == 0:
                     if curr_rsi_d <= 30 or curr_close <= curr_lcl_d:
                         rec_text = "🟡 避免殺低"
                         detail_reason = f"【嚴重負乖離】日線跌破LCL或RSI極度超賣({curr_rsi_d:.1f})，切勿恐慌殺低，靜待技術反彈。"
                     else:
                         if is_high_momentum:
-                            # 優先檢查是否命中「週線大底即將完成」
                             if is_weekly_bottom_forming:
                                 if is_daily_launching:
                                     rec_text = "🌟 醞釀向上 (週大底+日發動)"
@@ -383,15 +429,12 @@ def analyze_signals_comprehensive(watchlist):
                                 rec_text = "🟡 觀察 (抱牢主升)"
                                 detail_reason = "【動能型抱牢】日線震盪洗盤，但週線 5W>10W 且 MACD>0，無懼短線震盪續抱。"
                         else:
-                            # 穩健型走日線敏捷防守
                             if weekly_dif_decreasing:
                                 rec_text = "🔴 賣出 (日線敏捷)"
                                 detail_reason = "【穩健型防守】週線DIF下降且日線翻空，保護獲利果斷全出。"
                             else:
                                 rec_text = "🟡 觀察"
                                 detail_reason = "【防守延遲】日線翻空，但週線DIF仍上升，暫緩賣出。"
-                
-                # 3. 雙向預警雷達 (找獵物 / 提防見頂)
                 else:
                     if weekly_dif_decreasing and curr_rsi_d >= 70:
                         rec_text = "⚠️ 醞釀向下"
@@ -410,7 +453,6 @@ def analyze_signals_comprehensive(watchlist):
                         rec_text = "🟡 觀察"
                         detail_reason = "【方向分歧】指標未完全同步，維持觀望。"
 
-                # 4. SPC 極端超跌爆量
                 if curr_close <= curr_lcl_d and curr_vol_d > curr_vol_ma5_d * 2 and curr_rsi_d < 30:
                     rec_text = "🟢 逢低買入"
                     detail_reason = f"【SPC極端超跌】跌破LCL、爆出2倍均量且RSI超賣({curr_rsi_d:.1f})，籌碼換手醞釀強彈！"
@@ -522,14 +564,24 @@ def get_chart_data(ticker, interval, period):
     return df
 
 # ==========================================
-# 分頁 1：主看盤儀表板 
+# 分頁 1：主看盤儀表板 (支援切換 3 組自選股)
 # ==========================================
 with tab_dashboard:
-    col1, col2 = st.columns([1, 1])
-    with col1:
-        st.title("📈 雙指標波段系統")
-    with col2:
-        # 此選項僅控制下方圖表視角，不影響訊號計算
+    # 頂部控制面板：選擇自選股組合 ＋ 切換線圖週期
+    col_group, col_chart = st.columns([1, 1])
+    with col_group:
+        current_group = st.radio(
+            "📌 選擇自選股組合 (標準預設為自選股 1)：", 
+            ["自選股 1", "自選股 2", "自選股 3"], 
+            index=["自選股 1", "自選股 2", "自選股 3"].index(st.session_state.current_group_choice),
+            horizontal=True
+        )
+        if current_group != st.session_state.current_group_choice:
+            st.session_state.current_group_choice = current_group
+            save_settings()
+            st.rerun()
+
+    with col_chart:
         chart_timeframe = st.radio(
             "📊 線圖顯示週期 (僅切換下方K線圖)：", 
             ["日線圖 (Daily)", "週線圖 (Weekly)"], 
@@ -586,21 +638,24 @@ with tab_dashboard:
             with col_temp3:
                 st.write("") 
                 st.write("")
-                if st.button("➕ 加入自選股"):
-                    if temp_ticker not in st.session_state.watchlist_text:
-                        st.session_state.watchlist_text += f"\n{temp_ticker},{disp_name}"
+                if st.button(f"➕ 加入到當前【{st.session_state.current_group_choice}】"):
+                    target_key = "watchlist_1_text" if st.session_state.current_group_choice == "自選股 1" else ("watchlist_2_text" if st.session_state.current_group_choice == "自選股 2" else "watchlist_3_text")
+                    if temp_ticker not in st.session_state[target_key]:
+                        st.session_state[target_key] += f"\n{temp_ticker},{disp_name}"
+                        save_settings()
                         st.rerun()
                     else:
-                        st.warning("此標的已在您的自選股清單中。")
+                        st.warning(f"此標的已在【{st.session_state.current_group_choice}】中。")
         else:
             st.error("無法取得該代碼資料，請確認代碼是否正確。")
     st.divider()
     
-    # 主要分析運算 (唯一建議全週期運算)
-    display_df = analyze_signals_comprehensive(WATCHLIST)
+    # 主要分析運算 (使用當前選取的自選股組合)
+    with st.spinner(f"正在綜合運算【{st.session_state.current_group_choice}】所有標的..."):
+        display_df = analyze_signals_comprehensive(ACTIVE_WATCHLIST)
 
     if not display_df.empty:
-        st.subheader("📊 自選股狀態總覽 (長短線綜合唯一建議)")
+        st.subheader(f"📊 【{st.session_state.current_group_choice}】狀態總覽 (長短線綜合唯一解 - 共 {len(display_df)} 檔)")
         
         # 快速篩選器
         filter_opt = st.radio(
@@ -632,9 +687,7 @@ with tab_dashboard:
         elif filter_opt == "⚡ 剛發生交叉":
             filtered_df = filtered_df[filtered_df['最新動態'] != "-"]
 
-        # ==========================================
-        # 依股性分區塊獨立呈現 (穩健型 vs 高動能型)
-        # ==========================================
+        # 依股性分區塊獨立呈現
         df_steady = filtered_df[filtered_df['股性類別'] == "穩健型"].drop(columns=['股性類別']).reset_index(drop=True)
         df_momentum = filtered_df[filtered_df['股性類別'] == "高動能型"].drop(columns=['股性類別']).reset_index(drop=True)
 
@@ -675,7 +728,7 @@ with tab_dashboard:
     st.divider()
     st.subheader(f"📉 價量與指標複合分析圖 ({chart_timeframe})")
 
-    chart_options_dict = WATCHLIST.copy()
+    chart_options_dict = ACTIVE_WATCHLIST.copy()
     if temp_ticker and temp_ticker not in chart_options_dict:
         disp_name = temp_name if temp_name else temp_ticker
         chart_options_dict[temp_ticker] = disp_name
@@ -692,7 +745,6 @@ with tab_dashboard:
 
         selected_option = st.selectbox("請選擇要查看的標的：", options, index=default_idx)
         selected_ticker = selected_option.split(" - ")[0]
-        
         st.session_state.selected_ticker = selected_ticker
 
         with st.spinner("繪製圖表中..."):
@@ -780,13 +832,13 @@ with tab_dashboard:
                 st.warning("⚠️ 無法取得該標的的 K 線圖資料，請確認代碼是否正確。")
 
 # ==========================================
-# 分頁 4：買賣戰情室 (長短線綜合唯一解)
+# 分頁 4：買賣戰情室 (同步套用所選自選股組合)
 # ==========================================
 with tab_war_room:
-    st.subheader("⚔️ 買賣戰情室 (長短線雙週期綜合決策)")
+    st.subheader(f"⚔️ 買賣戰情室【{st.session_state.current_group_choice}】 (長短線雙週期綜合唯一解)")
     
     if display_df.empty:
-        st.warning("⚠️ 自選股清單目前為空，請從『⚙️ 自選股編輯』分頁加入股票。")
+        st.warning(f"⚠️【{st.session_state.current_group_choice}】目前為空，請從『⚙️ 自選股編輯』分頁加入股票。")
     else:
         df_up = display_df[display_df['建議'].str.contains("醞釀向上", na=False)].reset_index(drop=True)
         df_buy = display_df[display_df['建議'].str.contains("買入", na=False)].reset_index(drop=True)
