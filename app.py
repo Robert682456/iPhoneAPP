@@ -187,7 +187,7 @@ else:
 # 分頁 2：策略判斷原則
 # ==========================================
 with tab_rules:
-    st.header("📖 雙指標波段系統 - 判斷原則（含破底分批加碼雷達）")
+    st.header("📖 雙指標波段系統 - 判斷原則（方案 A 嚴格型止跌加碼版）")
     st.markdown("""
     本系統採用「長線保護短線」的全方位跨週期綜合評估。**每檔股票只會有一個綜合最佳建議**，不隨檢視圖表切換而改變：
     
@@ -197,12 +197,13 @@ with tab_rules:
         * **鎖定條件**：SGOV、BIL 等超短債，以及 **0050、VOO、QQQM** 等大盤原型 ETF。
         * **操作機制**：**【免出場長期持有】**。隨全球經濟成長滾動長期複利，不執行波段停損停利。
 
-    * **🟢 破底分批加碼機制 (左側灘平雷達 - 最高優先)**：
-        * **鎖定條件**：股價**跌破近 1 年絕對低點**或位階處於極限低檔（≤ 10%），且日線出現明確止跌特徵（MACD 綠柱收斂收紅棒、RSI 超賣脫離或爆量換手）。
-        * **操作機制**：**【全面壓制賣出，提示加碼】**。判定空方動能耗盡，系統不發出任何出清或減碼訊號，直接提示【破底分批加碼】。
+    * **🟢 破底分批加碼機制 (方案 A 嚴格確認型)**：
+        * **鎖定條件**：股價跌破近 1 年絕對低點或位階處於極限低檔（≤ 10%）。
+        * **加碼觸發標準**：必須同時滿足 **收盤價實質站上日 5MA** 且 **日 MACD 金叉 (柱狀 > 0) 或 5MA 金叉 10MA**。
+        * **未達標處置**：若尚未金叉轉強，系統一律標示為 **【🟡 破底打底觀察】**，禁止提早進場接刀。
     
     * **🚀 高動能波段型**：
-        * **出場機制**：週 5W 破 10W 減碼 50%，週 MACD 正式死叉出清剩餘部位；但受「近 1 年低點抱牢」與「破底加碼」絕對保護。
+        * **出場機制**：週 5W 破 10W 減碼 50%，週 MACD 正式死叉出清剩餘部位；但受「近 1 年低點抱牢」與「破底加碼」保護。
     """)
 
 # ==========================================
@@ -257,8 +258,7 @@ def analyze_signals_comprehensive(watchlist):
             high_d = df_d['High'][ticker] if isinstance(df_d.columns, pd.MultiIndex) else df_d['High']
             low_d = df_d['Low'][ticker] if isinstance(df_d.columns, pd.MultiIndex) else df_d['Low']
             volume_d = df_d['Volume'][ticker] if isinstance(df_d.columns, pd.MultiIndex) else df_d['Volume']
-            open_d = df_d['Open'][ticker] if isinstance(df_d.columns, pd.MultiIndex) else df_d['Open']
-            close_d, high_d, low_d, volume_d, open_d = close_d.dropna(), high_d.dropna(), low_d.dropna(), volume_d.dropna(), open_d.dropna()
+            close_d, high_d, low_d, volume_d = close_d.dropna(), high_d.dropna(), low_d.dropna(), volume_d.dropna()
 
             df_w = yf.download(ticker, period="2y", interval="1wk", progress=False)
             close_w = df_w['Close'][ticker] if isinstance(df_w.columns, pd.MultiIndex) else df_w['Close']
@@ -286,13 +286,11 @@ def analyze_signals_comprehensive(watchlist):
                 stock_profile = f"🚀 動能({atr_pct:.1f}%)" if is_high_momentum else f"🏛️ 穩健({atr_pct:.1f}%)"
                 stock_category = "高動能型" if is_high_momentum else "穩健型"
 
-            # 抓取近 1 年低點 (排除當日以避免自循環)
             high_1y = high_d.tail(250).max()
             low_1y_prev = low_d.iloc[:-1].tail(249).min() if len(low_d) >= 250 else low_d.iloc[:-1].min()
             low_1y = min(low_1y_prev, low_d.iloc[-1])
             percentile_1y = ((curr_close - low_1y) / (high_1y - low_1y)) * 100 if high_1y > low_1y else 50.0
             
-            # --- 破底與止跌關鍵條件 ---
             is_broke_1y_low = (curr_close <= low_1y_prev * 1.01) or (percentile_1y <= 10.0)
 
             ma5_d, ma10_d, ma20_d = close_d.rolling(5).mean(), close_d.rolling(10).mean(), close_d.rolling(20).mean()
@@ -306,7 +304,6 @@ def analyze_signals_comprehensive(watchlist):
             l_d = (-1 * delta_d.clip(upper=0)).ewm(com=13, adjust=False).mean()
             rsi_d = 100 - (100 / (1 + (g_d / l_d)))
             curr_rsi_d = rsi_d.iloc[-1]
-            prev_rsi_d = rsi_d.iloc[-2]
             
             std20_d = close_d.rolling(20).std()
             lcl_d = ma20_d - 2 * std20_d
@@ -316,13 +313,12 @@ def analyze_signals_comprehensive(watchlist):
             curr_hist_d, prev_hist_d = hist_d.iloc[-1], hist_d.iloc[-2]
             curr_vol_d, curr_vol_ma5_d = volume_d.iloc[-1], vol_ma5_d.iloc[-1]
 
-            # 判定日線是否出現明確止跌回穩特徵
-            is_rebound_candle = curr_close >= open_d.iloc[-1]
-            is_macd_turning_up = (curr_hist_d > prev_hist_d)
-            is_rsi_turning_up = (curr_rsi_d > prev_rsi_d) or (curr_rsi_d <= 32)
-            is_volume_supported = (curr_vol_d >= curr_vol_ma5_d * 1.2)
-            
-            is_daily_stopping_drop = (is_macd_turning_up and is_rebound_candle) or (is_rsi_turning_up and is_rebound_candle) or is_volume_supported
+            # ==========================================
+            # 🎯 方案 A 嚴格型止跌判定核心
+            # ==========================================
+            is_daily_golden_cross = (curr_hist_d > 0) or (curr_ma5_d > curr_ma10_d)
+            is_above_ma5 = (curr_close > curr_ma5_d)
+            is_daily_stopping_drop = is_above_ma5 and is_daily_golden_cross
 
             if len(close_w) >= 35:
                 ma5_w, ma10_w = close_w.rolling(5).mean(), close_w.rolling(10).mean()
@@ -372,7 +368,7 @@ def analyze_signals_comprehensive(watchlist):
             is_daily_launching = (curr_close > curr_ma5_d) and (curr_hist_d > prev_hist_d)
 
             # ==========================================
-            # 綜合唯一建議判定 (含破底加碼絕對攔截)
+            # 綜合唯一建議判定 (方案 A 嚴格攔截)
             # ==========================================
             if is_buy_and_hold:
                 rec_text = "🔵 長期持有 (核心被動)"
@@ -381,10 +377,14 @@ def analyze_signals_comprehensive(watchlist):
                 else:
                     detail_reason = "【免出場核心資產】大盤原型指數，隨經濟成長滾動長期複利，不執行技術面停損停利，建議定期定額或逢低續抱。"
             
-            # 🛡️ 破底分批加碼優先防線 (跌破1年新低且日線止跌)
-            elif is_broke_1y_low and is_daily_stopping_drop:
-                rec_text = "🟢 破底分批加碼"
-                detail_reason = f"【破底左側加碼】跌破近1年低點({low_1y_prev:.2f})但日線已現止跌信號(綠柱收斂/紅K)，空方動能耗盡，左側分批金字塔攤平買進，禁止盲目殺低！"
+            # 🛡️ 破底判定分流：達標加碼 vs 未達標觀察
+            elif is_broke_1y_low:
+                if is_daily_stopping_drop:
+                    rec_text = "🟢 破底分批加碼"
+                    detail_reason = f"【破底確認翻多】跌破近1年低點({low_1y_prev:.2f})後，日線已正式金叉(MACD或5MA翻多)且站上5MA，確認止跌轉強，啟動左側金字塔分批加碼！"
+                else:
+                    rec_text = "🟡 破底打底觀察"
+                    detail_reason = f"【破底未止跌】跌破近1年低點({low_1y_prev:.2f})，但日線 MA/MACD 尚未金叉轉強，空方慣性未改，暫緩攤平、耐心等待翻多信號！"
 
             else:
                 if target_pos_d == 100 and vol_condition_d:
@@ -482,14 +482,15 @@ def analyze_signals_comprehensive(watchlist):
             elif "週大底+日發動" in row['建議']: return 3
             elif "週大底打底" in row['建議']: return 4
             elif "長期持有" in row['建議']: return 5
-            elif "打底" in row['建議']: return 6
-            elif "停利" in row['建議']: return 7
-            elif "醞釀向下" in row['建議']: return 8
-            elif "減碼" in row['建議']: return 9
-            elif "避免殺低" in row['建議']: return 10 
-            elif "觀察" in row['建議']: return 11
-            elif "賣出" in row['建議']: return 12
-            else: return 13
+            elif "破底打底觀察" in row['建議']: return 6
+            elif "歷史低檔打底" in row['建議']: return 7
+            elif "停利" in row['建議']: return 8
+            elif "醞釀向下" in row['建議']: return 9
+            elif "減碼" in row['建議']: return 10
+            elif "避免殺低" in row['建議']: return 11 
+            elif "觀察" in row['建議']: return 12
+            elif "賣出" in row['建議']: return 13
+            else: return 14
         df_results['SortRank'] = df_results.apply(get_sort_rank, axis=1)
         df_results = df_results.sort_values(by=['SortRank', '代碼']).drop(columns=['SortRank']).reset_index(drop=True)
         
@@ -511,6 +512,7 @@ def style_dataframe(df):
     def color_rec(val):
         if isinstance(val, str):
             if '破底分批加碼' in val: return 'color: #1b5e20; font-weight: bold; background-color: #c8e6c9;'
+            elif '破底打底觀察' in val: return 'color: #b78103; font-weight: bold; background-color: #fff9c4;'
             elif '長期持有' in val: return 'color: #0d47a1; font-weight: bold; background-color: #e3f2fd;'
             elif '分批停利' in val: return 'color: #e65100; font-weight: bold; background-color: #fff3e0;'
             elif '打底' in val: return 'color: #1565c0; font-weight: bold; background-color: #e3f2fd;'
@@ -641,7 +643,7 @@ with tab_dashboard:
         
         filter_opt = st.radio(
             "🔍 狀態篩選：", 
-            ["👀 顯示全部", "🟢 破底加碼", "🟢 只看買入", "💡 醞釀向上", "🔵 長期持有", "🟡 歷史打底", "🟠 分批停利", "⚠️ 醞釀向下", "🟠 建議減碼", "🟡 避免殺低", "🔴 只看賣出", "⚡ 剛發生交叉"], 
+            ["👀 顯示全部", "🟢 破底加碼", "🟡 破底觀察", "🟢 只看買入", "💡 醞釀向上", "🔵 長期持有", "🟡 歷史打底", "🟠 分批停利", "⚠️ 醞釀向下", "🟠 建議減碼", "🟡 避免殺低", "🔴 只看賣出", "⚡ 剛發生交叉"], 
             index=0,
             horizontal=True
         )
@@ -649,6 +651,8 @@ with tab_dashboard:
         filtered_df = display_df.copy()
         if filter_opt == "🟢 破底加碼":
             filtered_df = filtered_df[filtered_df['建議'].str.contains("破底分批加碼", na=False)]
+        elif filter_opt == "🟡 破底觀察":
+            filtered_df = filtered_df[filtered_df['建議'].str.contains("破底打底觀察", na=False)]
         elif filter_opt == "🟢 只看買入":
             filtered_df = filtered_df[filtered_df['建議'].str.contains("買入", na=False)]
         elif filter_opt == "💡 醞釀向上":
@@ -656,7 +660,7 @@ with tab_dashboard:
         elif filter_opt == "🔵 長期持有":
             filtered_df = filtered_df[filtered_df['建議'].str.contains("長期持有", na=False)]
         elif filter_opt == "🟡 歷史打底":
-            filtered_df = filtered_df[filtered_df['建議'].str.contains("打底", na=False)]
+            filtered_df = filtered_df[filtered_df['建議'].str.contains("歷史低檔打底", na=False)]
         elif filter_opt == "🟠 分批停利":
             filtered_df = filtered_df[filtered_df['建議'].str.contains("分批停利", na=False)]
         elif filter_opt == "⚠️ 醞釀向下":
@@ -690,7 +694,7 @@ with tab_dashboard:
                 st.session_state.selected_ticker = df_steady.iloc[selected_row_idx]['代碼']
 
         st.write("")
-        st.markdown(f"#### 🚀 高動能波段型（週線雙死叉 ＋ 破底加碼/歷史低點保護） ({len(df_momentum)} 檔)")
+        st.markdown(f"#### 🚀 高動能波段型（週線雙死叉 ＋ 方案A破底加碼/歷史低點保護） ({len(df_momentum)} 檔)")
         if df_momentum.empty:
             st.info("目前無符合篩選條件的高動能型標的。")
         else:
@@ -839,20 +843,21 @@ with tab_war_room:
         st.warning(f"⚠️【{st.session_state.current_group_choice}】目前為空，請從『⚙️ 自選股編輯』分頁加入股票。")
     else:
         df_dip_buy = display_df[display_df['建議'].str.contains("破底分批加碼", na=False)].reset_index(drop=True)
+        df_dip_watch = display_df[display_df['建議'].str.contains("破底打底觀察", na=False)].reset_index(drop=True)
         df_up = display_df[display_df['建議'].str.contains("醞釀向上", na=False)].reset_index(drop=True)
         df_buy = display_df[display_df['建議'].str.contains("買入", na=False)].reset_index(drop=True)
         
         df_hold_core = display_df[display_df['建議'].str.contains("長期持有", na=False)].reset_index(drop=True)
-        df_bottom = display_df[display_df['建議'].str.contains("打底", na=False)].reset_index(drop=True)
+        df_bottom = display_df[display_df['建議'].str.contains("歷史低檔打底", na=False)].reset_index(drop=True)
         df_take_profit = display_df[display_df['建議'].str.contains("分批停利", na=False)].reset_index(drop=True)
         df_down = display_df[display_df['建議'].str.contains("醞釀向下", na=False)].reset_index(drop=True)
         df_trim = display_df[display_df['建議'].str.contains("減碼", na=False)].reset_index(drop=True)
         df_sell = display_df[display_df['建議'].str.contains("賣出", na=False)].reset_index(drop=True)
         df_defense = display_df[display_df['建議'].str.contains("避免殺低", na=False)].reset_index(drop=True)
         
-        # 🟢 破底加碼專區（置頂呈現）
+        # 🟢 破底加碼專區（方案 A 嚴格確認）
         if not df_dip_buy.empty:
-            st.markdown(f"#### 🎯 破底加碼雷達（左側灘平買點）：🟢 破底分批加碼 ({len(df_dip_buy)})")
+            st.markdown(f"#### 🎯 破底加碼雷達（已確認翻多）：🟢 破底分批加碼 ({len(df_dip_buy)})")
             ev_dip = st.dataframe(
                 style_dataframe(df_dip_buy.drop(columns=['股性類別'])), use_container_width=True,
                 on_select="rerun", selection_mode="single-row", key="war_dip",
@@ -860,6 +865,18 @@ with tab_war_room:
             )
             if ev_dip.selection.rows:
                 st.session_state.selected_ticker = df_dip_buy.iloc[ev_dip.selection.rows[0]]['代碼']
+            st.divider()
+
+        # 🟡 破底打底觀察專區（未金叉暫緩加碼）
+        if not df_dip_watch.empty:
+            st.markdown(f"#### 👀 破底打底觀察（未金叉暫緩加碼）：🟡 破底打底觀察 ({len(df_dip_watch)})")
+            ev_watch = st.dataframe(
+                style_dataframe(df_dip_watch.drop(columns=['股性類別'])), use_container_width=True,
+                on_select="rerun", selection_mode="single-row", key="war_watch",
+                column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
+            )
+            if ev_watch.selection.rows:
+                st.session_state.selected_ticker = df_dip_watch.iloc[ev_watch.selection.rows[0]]['代碼']
             st.divider()
 
         if not df_hold_core.empty:
