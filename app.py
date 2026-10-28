@@ -252,7 +252,7 @@ def get_market_trend(ticker):
         elif curr_hist < 0 and curr_hist > prev_hist:
             return {"status": "🟡 跌深反彈 (水下金叉)", "advice": "大盤有落底跡象，可以 30%~50% 資金小量試單，嚴設前低停損。", "color": "#fff8e1"}
         else:
-            return {"status": "🔴 空頭發散", "advice": "大盤趨勢向下，建議縮小操作部位至 30% 以下，多看少做保本為主。", "color": "#ffebee"}
+            return {"status": "🔴 空頭發散", "advice": "大盤趨勢向上，建議縮小操作部位至 30% 以下，多看少做保本為主。", "color": "#ffebee"}
     except Exception:
         return None
 
@@ -564,11 +564,11 @@ def get_chart_data(ticker, interval, period):
     return df
 
 # ==========================================
-# 分頁 1：主看盤儀表板 (支援切換 3 組自選股)
+# 分頁 1：主看盤儀表板 
 # ==========================================
 with tab_dashboard:
-    # 頂部控制面板：選擇自選股組合 ＋ 切換線圖週期
-    col_group, col_chart = st.columns([1, 1])
+    # 頂部控制面板：選擇自選股組合
+    col_group, col_empty = st.columns([1, 1])
     with col_group:
         current_group = st.radio(
             "📌 選擇自選股組合 (標準預設為自選股 1)：", 
@@ -580,19 +580,6 @@ with tab_dashboard:
             st.session_state.current_group_choice = current_group
             save_settings()
             st.rerun()
-
-    with col_chart:
-        chart_timeframe = st.radio(
-            "📊 線圖顯示週期 (僅切換下方K線圖)：", 
-            ["日線圖 (Daily)", "週線圖 (Weekly)"], 
-            index=0,
-            horizontal=True
-        )
-
-    tf_interval = "1wk" if chart_timeframe == "週線圖 (Weekly)" else "1d"
-    tf_period = "2y" if chart_timeframe == "週線圖 (Weekly)" else "1y"
-    ma_s_lbl = "5W" if chart_timeframe == "週線圖 (Weekly)" else "5D"
-    ma_l_lbl = "10W" if chart_timeframe == "週線圖 (Weekly)" else "10D"
 
     # 總體資金水位儀表板 
     market_ticker = st.text_input("📊 設定總體資金水位參考標的 (預設 0050.TW)：", key="market_ticker_input", on_change=update_other_inputs).strip().upper()
@@ -724,9 +711,25 @@ with tab_dashboard:
                 selected_row_idx = ev_momentum.selection.rows[0]
                 st.session_state.selected_ticker = df_momentum.iloc[selected_row_idx]['代碼']
 
-    # --- 互動 K 線圖區塊 ---
+    # --- 互動 K 線圖區塊 (日/週切換鈕已移至 Title 的右側) ---
     st.divider()
-    st.subheader(f"📉 價量與指標複合分析圖 ({chart_timeframe})")
+    
+    col_title, col_toggle = st.columns([3, 2])
+    with col_toggle:
+        chart_timeframe = st.radio(
+            "📊 線圖顯示週期 (僅切換下方K線圖)：", 
+            ["日線圖 (Daily)", "週線圖 (Weekly)"], 
+            index=0,
+            horizontal=True
+        )
+    with col_title:
+        timeframe_display = "週線圖 (Weekly)" if chart_timeframe == "週線圖 (Weekly)" else "日線圖 (Daily)"
+        st.subheader(f"📉 價量與指標複合分析圖 ({timeframe_display})")
+
+    tf_interval = "1wk" if chart_timeframe == "週線圖 (Weekly)" else "1d"
+    tf_period = "2y" if chart_timeframe == "週線圖 (Weekly)" else "1y"
+    ma_s_lbl = "5W" if chart_timeframe == "週線圖 (Weekly)" else "5D"
+    ma_l_lbl = "10W" if chart_timeframe == "週線圖 (Weekly)" else "10D"
 
     chart_options_dict = ACTIVE_WATCHLIST.copy()
     if temp_ticker and temp_ticker not in chart_options_dict:
