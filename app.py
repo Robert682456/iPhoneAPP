@@ -145,9 +145,10 @@ with tab_rules:
     * **🚀 高動能波段型**：
         * **鎖定條件**：中小型科技股、高波動成長飆股（ATR% ≥ 3.5%）。
         * **進場條件**：長短線共振帶量買進（或打底起漲）。
-        * **出場機制**：啟動【週線雙死叉分批出場】：
+        * **出場機制**：啟動【週線雙死叉分批出場 ＋ 強彈分批停利保護】：
             1. **第一階段防線**：週 5W 跌破 10W 時，建議減碼 50% 鎖住部分利潤。
-            2. **終極出清防線**：週 MACD 正式死叉時，全數出清剩餘 50% 持股，無懼日線短期洗盤。
+            2. **終極出清防線**：週 MACD 正式死叉時，原則出清剩餘 50% 持股。
+            3. **💡 強彈／低接保護傘**：若觸發出清時**單日大漲逾 4%** 或**日線綠柱收斂站上 5MA（醞釀向上）**，系統自動改為提示【分批停利】，建議先賣 30%~50%，剩餘持股改看日線 5MA 防守。
 
     ---
 
@@ -375,6 +376,9 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
                     else:
                         daily_status = "🟡日線方向分歧"
 
+            # 判定日線是否具備醞釀向上特徵
+            is_brewing_up = (curr_rsi <= 35) or (curr_hist < 0 and curr_hist > prev_hist and curr_close > curr_ma5)
+
             # ==========================================
             # 建議判定 (存債資產強制免出場攔截)
             # ==========================================
@@ -402,8 +406,13 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
                     else:
                         if is_high_momentum:
                             if weekly_macd_dead:
-                                rec_text = "🔴 賣出 (動能出清)"
-                                detail_reason = f"【動能型終極出場】週MACD死叉確認大波段結束，建議出清剩餘 50% 部位。"
+                                # 加入保護傘：單日大漲逾 4% 或出現醞釀向上特徵，改為提示分批停利
+                                if change_pct >= 4.0 or is_brewing_up:
+                                    rec_text = "🟠 分批停利 (強彈中)"
+                                    detail_reason = f"【低接強彈保護】週線雖死叉，但當日強漲 {change_pct:.2f}% 或動能收斂，低檔有買盤支撐，建議先分批獲利減碼 30%~50%，剩餘持股改看日線 5MA 防守，切勿盲目清倉！"
+                                else:
+                                    rec_text = "🔴 賣出 (動能出清)"
+                                    detail_reason = f"【動能型終極出場】週MACD死叉確認大波段結束，建議出清剩餘 50% 部位。"
                             elif weekly_ma_dead:
                                 rec_text = "🟠 減碼 (週MA死叉)"
                                 detail_reason = f"【動能型第一防線】週5W跌破10W，先行減碼 50% 鎖住利潤，其餘等週MACD確認。"
@@ -424,7 +433,7 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
                     else:
                         detail_reason = f"【方向分歧】{macd_text} 但 {ma_text}，指標未同步。"
 
-                if "買入" not in rec_text and "賣出" not in rec_text and "減碼" not in rec_text and "殺低" not in rec_text:
+                if "買入" not in rec_text and "賣出" not in rec_text and "減碼" not in rec_text and "停利" not in rec_text and "殺低" not in rec_text:
                     if weekly_dif_decreasing and curr_rsi >= 70:
                         rec_text = "⚠️ 醞釀向下"
                         detail_reason = f"【逼近超買】週線DIF下降且RSI達高檔 ({curr_rsi:.1f})，極度貪婪隨時面臨下修。"
@@ -470,12 +479,13 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
             if "買入" in row['建議']: return 1  
             elif "醞釀向上" in row['建議']: return 2
             elif "長期持有" in row['建議']: return 3
-            elif "醞釀向下" in row['建議']: return 4
-            elif "減碼" in row['建議']: return 5
-            elif "避免殺低" in row['建議']: return 6 
-            elif "觀察" in row['建議']: return 7
-            elif "賣出" in row['建議']: return 8
-            else: return 9
+            elif "停利" in row['建議']: return 4
+            elif "醞釀向下" in row['建議']: return 5
+            elif "減碼" in row['建議']: return 6
+            elif "避免殺低" in row['建議']: return 7 
+            elif "觀察" in row['建議']: return 8
+            elif "賣出" in row['建議']: return 9
+            else: return 10
         df_results['SortRank'] = df_results.apply(get_sort_rank, axis=1)
         df_results = df_results.sort_values(by=['SortRank', '代碼']).drop(columns=['SortRank']).reset_index(drop=True)
         
@@ -553,13 +563,11 @@ def calculate_win_rate(ticker, name, interval):
                 if is_cash_bond:
                     should_exit = False
                 elif not is_etf_or_index and curr_atr_pct >= 3.5:
-                    # 高動能型：純週線雙死叉出場
                     if interval == '1d':
                         should_exit = (w_hist_aligned.iloc[i] <= 0) and (w_ma5_aligned.iloc[i] < w_ma10_aligned.iloc[i])
                     else:
                         should_exit = (hist.iloc[i] <= 0) and (ma5.iloc[i] < ma10.iloc[i])
                 else:
-                    # 穩健型：日線敏捷出場
                     if interval == '1d':
                         should_exit = (target_position == 0) and bool(wdif_dec_aligned.iloc[i])
                     else:
@@ -594,14 +602,20 @@ def style_dataframe(df):
             elif '🏛️' in val: return 'color: #1976d2; font-weight: bold;'
             elif '💰' in val: return 'color: #2e7d32; font-weight: bold;'
         return ''
+    def color_rec(val):
+        if isinstance(val, str):
+            if '分批停利' in val: return 'color: #e65100; font-weight: bold; background-color: #fff3e0;'
+        return ''
         
     res = df.style
     if hasattr(res, "map"):
         if '收盤價(漲跌)' in df.columns: res = res.map(color_trend, subset=['收盤價(漲跌)'])
         if '股性模式' in df.columns: res = res.map(color_profile, subset=['股性模式'])
+        if '建議' in df.columns: res = res.map(color_rec, subset=['建議'])
     else:
         if '收盤價(漲跌)' in df.columns: res = res.applymap(color_trend, subset=['收盤價(漲跌)'])
         if '股性模式' in df.columns: res = res.applymap(color_profile, subset=['股性模式'])
+        if '建議' in df.columns: res = res.applymap(color_rec, subset=['建議'])
     return res
 
 @st.cache_data(ttl=300)
@@ -726,7 +740,7 @@ with tab_dashboard:
         # 快速篩選器
         filter_opt = st.radio(
             "🔍 狀態篩選：", 
-            ["👀 顯示全部", "🟢 只看買入", "💡 醞釀向上", "🔵 長期持有", "⚠️ 醞釀向下", "🟠 建議減碼", "🟡 避免殺低", "🔴 只看賣出", "⚡ 剛發生交叉"], 
+            ["👀 顯示全部", "🟢 只看買入", "💡 醞釀向上", "🔵 長期持有", "🟠 分批停利", "⚠️ 醞釀向下", "🟠 建議減碼", "🟡 避免殺低", "🔴 只看賣出", "⚡ 剛發生交叉"], 
             index=0,
             horizontal=True
         )
@@ -738,6 +752,8 @@ with tab_dashboard:
             filtered_df = filtered_df[filtered_df['建議'].str.contains("醞釀向上", na=False)]
         elif filter_opt == "🔵 長期持有":
             filtered_df = filtered_df[filtered_df['建議'].str.contains("長期持有", na=False)]
+        elif filter_opt == "🟠 分批停利":
+            filtered_df = filtered_df[filtered_df['建議'].str.contains("分批停利", na=False)]
         elif filter_opt == "⚠️ 醞釀向下":
             filtered_df = filtered_df[filtered_df['建議'].str.contains("醞釀向下", na=False)]
         elif filter_opt == "🟠 建議減碼":
@@ -772,7 +788,7 @@ with tab_dashboard:
                 st.session_state.selected_ticker = df_steady.iloc[selected_row_idx]['代碼']
 
         st.write("")
-        st.markdown(f"#### 🚀 高動能波段型（週線雙死叉分批出場） ({len(df_momentum)} 檔)")
+        st.markdown(f"#### 🚀 高動能波段型（週線雙死叉分批出場 ＋ 強彈停利保護） ({len(df_momentum)} 檔)")
         if df_momentum.empty:
             st.info("目前無符合篩選條件的高動能型標的。")
         else:
@@ -936,6 +952,7 @@ with tab_war_room:
         df_up = display_df[display_df['建議'].str.contains("醞釀向上", na=False)].reset_index(drop=True)
         df_buy = display_df[display_df['建議'].str.contains("買入", na=False)].reset_index(drop=True)
         
+        df_take_profit = display_df[display_df['建議'].str.contains("分批停利", na=False)].reset_index(drop=True)
         df_down = display_df[display_df['建議'].str.contains("醞釀向下", na=False)].reset_index(drop=True)
         df_trim = display_df[display_df['建議'].str.contains("減碼", na=False)].reset_index(drop=True)
         df_sell = display_df[display_df['建議'].str.contains("賣出", na=False)].reset_index(drop=True)
@@ -966,6 +983,16 @@ with tab_war_room:
                 st.session_state.selected_ticker = df_buy.iloc[ev_buy.selection.rows[0]]['代碼']
                 
         st.divider()
+
+        if not df_take_profit.empty:
+            st.markdown(f"#### 轉折防護（強彈先收獲利）：🟠 分批停利 ({len(df_take_profit)})")
+            ev_tp = st.dataframe(
+                style_dataframe(df_take_profit.drop(columns=['股性類別'])), use_container_width=True,
+                on_select="rerun", selection_mode="single-row", key="war_tp",
+                column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
+            )
+            if ev_tp.selection.rows:
+                st.session_state.selected_ticker = df_take_profit.iloc[ev_tp.selection.rows[0]]['代碼']
 
         st.markdown(f"#### 第一步（提防見頂）：⚠️ 醞釀向下 ({len(df_down)})")
         if df_down.empty:
