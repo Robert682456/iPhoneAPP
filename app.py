@@ -148,7 +148,7 @@ with tab_rules:
         * **出場機制**：啟動【週線雙死叉分批出場 ＋ 歷史低點/強彈雙保護網】：
             1. **第一階段防線**：週 5W 跌破 10W 時，建議減碼 50% 鎖住部分利潤。
             2. **終極出清防線**：週 MACD 正式死叉時，原則出清剩餘 50% 持股。
-            3. **🛡️ 近 1 年歷史低點保護網（重要）**：若股價處於**近 1 年歷史相對低點區間（位階 ≤ 25%）**，系統自動攔截賣出訊號，改為提示【歷史低檔打底 (抱牢)】，切勿在相對低檔盲目出清。
+            3. **🛡️ 近 1 年歷史低點保護網**：若股價處於近 1 年歷史相對低點區間（位階 ≤ 25%），系統自動攔截賣出訊號，改為提示【歷史低檔打底 (抱牢)】，切勿在相對低檔盲目出清。
             4. **💡 強彈保護傘**：若單日大漲逾 4% 或出現綠柱收斂站上 5MA，系統改為提示【分批停利】，兼顧獲利落袋與防守。
 
     ---
@@ -157,8 +157,9 @@ with tab_rules:
     1. **順勢共振買點 (長短線雙多)**：週線 MACD>0 且 5W>10W；日線 MACD>0 且 5MA>10MA，當日成交量 > 5日均量。
     2. **逆勢超跌買點 (爆量 + RSI 雙濾網)**：跌破 LCL (20MA-2σ)，成交量大於 5日均量 2 倍，且 RSI(14) < 30。
 
-    ### 💡 雙向預警雷達 (提早抓轉折)
-    - **💡 醞釀向上 (主力打底區)**：MACD 綠柱縮減且股價站上 5MA；或 RSI(14) ≤ 35。強烈建議列入買進觀察清單。
+    ### 💡 雙向預警雷達 (以「日線剛剛站上均線發動」為優先核心)
+    - **🌟 醞釀向上 (長多共振)**：日線 MACD 綠柱縮減且**收盤剛站上日 5MA**，且週線格局完好。主力初發動，強烈建議列為第一買進觀察清單！
+    - **⚡ 醞釀向上 (短線轉強)**：日線 MACD 綠柱縮減且**收盤剛站上日 5MA**，週線偏空。低檔技術性轉折，適合抓波段短打價差。
     - **⚠️ 醞釀向下 (提防見頂)**：(需滿足 **週線 DIF 下降** 前提) MACD 紅柱縮減且股價跌破 5MA；或 RSI(14) ≥ 70。
 
     ### 🟡 避免殺低防護網 (極重要)
@@ -251,7 +252,6 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
                 stock_category = "高動能型" if is_high_momentum else "穩健型"
             
             # --- 計算近 1 年歷史相對位階百分位 ---
-            # 52 週約 250 個日交易日或 52 根週 K 線
             lookback_1y = 52 if interval == "1wk" else min(250, len(close))
             high_1y = high.tail(lookback_1y).max()
             low_1y = low.tail(lookback_1y).min()
@@ -295,11 +295,64 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
             weekly_ma_dead = False
             weekly_macd_dead = False
             
-            if interval == "1wk":
+            # 取得日線與週線跨週期特徵
+            # 無論當前處於 1d 還是 1wk，均提取跨週期的真實日線動態
+            if interval == "1d":
+                # 日線數據即為當前 df
+                d_close, d_ma5, d_hist, d_prev_hist, d_rsi = curr_close, curr_ma5, curr_hist, prev_hist, curr_rsi
+                # 抓週線以判斷長線方向
+                df_w = yf.download(ticker, period="2y", interval="1wk", progress=False)
+                if not df_w.empty and len(df_w) >= 35:
+                    close_w = df_w['Close'][ticker] if isinstance(df_w.columns, pd.MultiIndex) else df_w['Close']
+                    close_w = close_w.dropna()
+                    ma5_w, ma10_w = close_w.rolling(5).mean(), close_w.rolling(10).mean()
+                    ema12_w = close_w.ewm(span=12, adjust=False).mean()
+                    ema26_w = close_w.ewm(span=26, adjust=False).mean()
+                    dif_w = ema12_w - ema26_w
+                    hist_w = dif_w - dif_w.ewm(span=9, adjust=False).mean()
+                    
+                    if len(dif_w) >= 2:
+                        curr_dif_w_val = dif_w.iloc[-1]
+                        prev_dif_w_val = dif_w.iloc[-2]
+                        weekly_dif_decreasing = curr_dif_w_val < prev_dif_w_val
+                    
+                    weekly_ma_dead = (ma5_w.iloc[-1] < ma10_w.iloc[-1])
+                    weekly_macd_dead = (hist_w.iloc[-1] <= 0)
+                    is_weekly_bullish = (hist_w.iloc[-1] > 0 and ma5_w.iloc[-1] > ma10_w.iloc[-1])
+                    weekly_status = "週線長多" if is_weekly_bullish else "週線偏空"
+                else:
+                    is_weekly_bullish = True
+                    weekly_status = "週線長多"
+            else:
+                # 當前為週線，需要提取日線真實動能
                 weekly_dif_decreasing = curr_dif < prev_dif
                 curr_dif_w_val, prev_dif_w_val = curr_dif, prev_dif
                 weekly_ma_dead = (curr_ma5 < curr_ma10) and (ma5.iloc[-2] >= ma10.iloc[-2])
                 weekly_macd_dead = (curr_hist <= 0) and (prev_hist > 0)
+                is_weekly_bullish = (curr_hist > 0 and curr_ma5 > curr_ma10)
+                weekly_status = "週線長多" if is_weekly_bullish else "週線偏空"
+                
+                df_d = yf.download(ticker, period="6mo", interval="1d", progress=False)
+                if not df_d.empty and len(df_d) >= 35:
+                    close_d = df_d['Close'][ticker] if isinstance(df_d.columns, pd.MultiIndex) else df_d['Close']
+                    close_d = close_d.dropna()
+                    ma5_d = close_d.rolling(5).mean()
+                    ema12_d = close_d.ewm(span=12, adjust=False).mean()
+                    ema26_d = close_d.ewm(span=26, adjust=False).mean()
+                    dif_d = ema12_d - ema26_d
+                    hist_d = dif_d - dif_d.ewm(span=9, adjust=False).mean()
+                    delta_d = close_d.diff()
+                    g_d = delta_d.clip(lower=0).ewm(com=13, adjust=False).mean()
+                    l_d = (-1 * delta_d.clip(upper=0)).ewm(com=13, adjust=False).mean()
+                    rsi_d = 100 - (100 / (1 + (g_d / l_d)))
+                    
+                    d_close = close_d.iloc[-1]
+                    d_ma5 = ma5_d.iloc[-1]
+                    d_hist = hist_d.iloc[-1]
+                    d_prev_hist = hist_d.iloc[-2]
+                    d_rsi = rsi_d.iloc[-1]
+                else:
+                    d_close, d_ma5, d_hist, d_prev_hist, d_rsi = curr_close, curr_ma5, curr_hist, prev_hist, curr_rsi
 
             vol_condition = curr_vol > curr_vol_ma5  
             
@@ -334,62 +387,12 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
 
             macd_text = f"MACD>0(自{macd_date})" if curr_hist > 0 else f"MACD<0(自{macd_date})"
             ma_text = f"{ma_s_label}>{ma_l_label}(自{ma_date})" if curr_ma5 > curr_ma10 else f"{ma_s_label}<{ma_l_label}(自{ma_date})"
-            
-            is_weekly_bullish = True
-            weekly_status = ""
-            daily_status = ""
-            
-            if interval == "1d":
-                df_w = yf.download(ticker, period="2y", interval="1wk", progress=False)
-                if not df_w.empty and len(df_w) >= 35:
-                    close_w = df_w['Close'][ticker] if isinstance(df_w.columns, pd.MultiIndex) else df_w['Close']
-                    close_w = close_w.dropna()
-                    ma5_w, ma10_w = close_w.rolling(5).mean(), close_w.rolling(10).mean()
-                    ema12_w = close_w.ewm(span=12, adjust=False).mean()
-                    ema26_w = close_w.ewm(span=26, adjust=False).mean()
-                    dif_w = ema12_w - ema26_w
-                    hist_w = dif_w - dif_w.ewm(span=9, adjust=False).mean()
-                    
-                    if len(dif_w) >= 2:
-                        curr_dif_w_val = dif_w.iloc[-1]
-                        prev_dif_w_val = dif_w.iloc[-2]
-                        weekly_dif_decreasing = curr_dif_w_val < prev_dif_w_val
-                    
-                    weekly_ma_dead = (ma5_w.iloc[-1] < ma10_w.iloc[-1])
-                    weekly_macd_dead = (hist_w.iloc[-1] <= 0)
-                    
-                    if hist_w.iloc[-1] > 0 and ma5_w.iloc[-1] > ma10_w.iloc[-1]:
-                        is_weekly_bullish = True
-                        weekly_status = "週線長多"
-                    else:
-                        is_weekly_bullish = False
-                        weekly_status = "週線偏空"
-                        
-            elif interval == "1wk":
-                df_d = yf.download(ticker, period="1y", interval="1d", progress=False)
-                if not df_d.empty and len(df_d) >= 35:
-                    close_d = df_d['Close'][ticker] if isinstance(df_d.columns, pd.MultiIndex) else df_d['Close']
-                    vol_d = df_d['Volume'][ticker] if isinstance(df_d.columns, pd.MultiIndex) else df_d['Volume']
-                    close_d, vol_d = close_d.dropna(), vol_d.dropna()
-                    
-                    ma5_d, ma10_d = close_d.rolling(5).mean(), close_d.rolling(10).mean()
-                    vol_ma5_d = vol_d.rolling(5).mean()
-                    ema12_d = close_d.ewm(span=12, adjust=False).mean()
-                    ema26_d = close_d.ewm(span=26, adjust=False).mean()
-                    hist_d = (ema12_d - ema26_d) - (ema12_d - ema26_d).ewm(span=9, adjust=False).mean()
-                    
-                    curr_hist_d = hist_d.iloc[-1]
-                    curr_ma5_d, curr_ma10_d = ma5_d.iloc[-1], ma10_d.iloc[-1]
-                    
-                    if curr_hist_d > 0 and curr_ma5_d > curr_ma10_d:
-                        if vol_d.iloc[-1] > vol_ma5_d.iloc[-1]: daily_status = "🟢日線帶量買入"
-                        else: daily_status = "🟡日線量縮觀察"
-                    elif curr_hist_d <= 0 and curr_ma5_d <= curr_ma10_d:
-                        daily_status = "🔴日線雙空賣出"
-                    else:
-                        daily_status = "🟡日線方向分歧"
 
-            is_brewing_up = (curr_rsi <= 35) or (curr_hist < 0 and curr_hist > prev_hist and curr_close > curr_ma5)
+            # ==========================================
+            # 🎯 統一核心：日線剛站上均線發動 (優先權判定)
+            # ==========================================
+            # 條件：日線 MACD 綠柱連續收斂 且 收盤站上日 5MA (或日線超跌脫離)
+            is_daily_launching = (d_hist < 0 and d_hist > d_prev_hist and d_close > d_ma5) or (d_rsi <= 35)
 
             # ==========================================
             # 建議判定 (存債資產強制免出場攔截)
@@ -422,9 +425,9 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
                                 if is_relative_low:
                                     rec_text = "🟡 歷史低檔打底 (抱牢)"
                                     detail_reason = f"【歷史相對低點保護】近1年位階僅 {percentile_1y:.1f}%(≤25%)，基期極低且逼近年度大底({low_1y:.2f})，週線死叉具滯後性，低接者切勿在底部殺低，建議耐心抱牢！"
-                                elif change_pct >= 4.0 or is_brewing_up:
+                                elif change_pct >= 4.0 or is_daily_launching:
                                     rec_text = "🟠 分批停利 (強彈中)"
-                                    detail_reason = f"【低接強彈保護】週線雖死叉，但當日強漲 {change_pct:.2f}% 或動能收斂，低檔有買盤支撐，建議先分批獲利減碼 30%~50%，剩餘持股改看日線 5MA 防守，切勿盲目清倉！"
+                                    detail_reason = f"【低接強彈保護】週線雖死叉，但當日強漲 {change_pct:.2f}% 或日線已站上5MA動能收斂，低檔有買盤支撐，建議先分批獲利減碼 30%~50%，剩餘持股改看日線 5MA 防守，切勿盲目清倉！"
                                 else:
                                     rec_text = "🔴 賣出 (動能出清)"
                                     detail_reason = f"【動能型終極出場】週MACD死叉確認大波段結束，建議出清剩餘 50% 部位。"
@@ -452,6 +455,9 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
                     else:
                         detail_reason = f"【方向分歧】{macd_text} 但 {ma_text}，指標未同步。"
 
+                # ==========================================
+                # 雙向預警雷達 (日線發動優先定錨)
+                # ==========================================
                 if "買入" not in rec_text and "賣出" not in rec_text and "減碼" not in rec_text and "停利" not in rec_text and "打底" not in rec_text and "殺低" not in rec_text:
                     if weekly_dif_decreasing and curr_rsi >= 70:
                         rec_text = "⚠️ 醞釀向下"
@@ -459,12 +465,13 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
                     elif weekly_dif_decreasing and curr_hist > 0 and curr_hist < prev_hist and curr_close < curr_ma5:
                         rec_text = "⚠️ 醞釀向下"
                         detail_reason = f"【動能衰退】MACD紅柱縮減且週線DIF下降，多方推升無力提防見頂。"
-                    elif curr_rsi <= 35:
-                        rec_text = "💡 醞釀向上"
-                        detail_reason = f"【逼近超賣】RSI降至低檔 ({curr_rsi:.1f})，隨時可能觸發技術性反彈。"
-                    elif curr_hist < 0 and curr_hist > prev_hist and curr_close > curr_ma5:
-                        rec_text = "💡 醞釀向上"
-                        detail_reason = f"【動能收斂】MACD綠柱縮減且站上5MA，空方力竭準備打底。"
+                    elif is_daily_launching:
+                        if is_weekly_bullish or not weekly_dif_decreasing:
+                            rec_text = "🌟 醞釀向上 (長多發動)"
+                            detail_reason = "【日線剛站上均線發動】日MACD綠柱縮減且站上日5MA，且週線長多格局完好，波段起跑第一買進觀察標的！"
+                        else:
+                            rec_text = "⚡ 醞釀向上 (短線轉強)"
+                            detail_reason = "【日線剛站上均線發動】日MACD綠柱收斂且站上日5MA，空方力竭率先轉強，適合搶低接反彈價差！"
 
                 if curr_close <= curr_lcl:
                     if curr_vol > curr_vol_ma5 * 2 and curr_rsi < 30:
@@ -496,16 +503,17 @@ def analyze_signals(interval, period, ma_s_label, ma_l_label, watchlist):
     if not df_results.empty:
         def get_sort_rank(row):
             if "買入" in row['建議']: return 1  
-            elif "醞釀向上" in row['建議']: return 2
-            elif "長期持有" in row['建議']: return 3
-            elif "打底" in row['建議']: return 4
-            elif "停利" in row['建議']: return 5
-            elif "醞釀向下" in row['建議']: return 6
-            elif "減碼" in row['建議']: return 7
-            elif "避免殺低" in row['建議']: return 8 
-            elif "觀察" in row['建議']: return 9
-            elif "賣出" in row['建議']: return 10
-            else: return 11
+            elif "醞釀向上 (長多發動)" in row['建議']: return 2
+            elif "醞釀向上 (短線轉強)" in row['建議']: return 3
+            elif "長期持有" in row['建議']: return 4
+            elif "打底" in row['建議']: return 5
+            elif "停利" in row['建議']: return 6
+            elif "醞釀向下" in row['建議']: return 7
+            elif "減碼" in row['建議']: return 8
+            elif "避免殺低" in row['建議']: return 9 
+            elif "觀察" in row['建議']: return 10
+            elif "賣出" in row['建議']: return 11
+            else: return 12
         df_results['SortRank'] = df_results.apply(get_sort_rank, axis=1)
         df_results = df_results.sort_values(by=['SortRank', '代碼']).drop(columns=['SortRank']).reset_index(drop=True)
         
@@ -626,6 +634,8 @@ def style_dataframe(df):
         if isinstance(val, str):
             if '分批停利' in val: return 'color: #e65100; font-weight: bold; background-color: #fff3e0;'
             elif '打底' in val: return 'color: #1565c0; font-weight: bold; background-color: #e3f2fd;'
+            elif '長多發動' in val: return 'color: #2e7d32; font-weight: bold; background-color: #e8f5e9;'
+            elif '短線轉強' in val: return 'color: #f57c00; font-weight: bold; background-color: #fffde7;'
         return ''
         
     res = df.style
@@ -982,7 +992,7 @@ with tab_war_room:
         df_sell = display_df[display_df['建議'].str.contains("賣出", na=False)].reset_index(drop=True)
         df_hold = display_df[display_df['建議'].str.contains("避免殺低", na=False)].reset_index(drop=True)
         
-        st.markdown(f"#### 第一步（找獵物）：💡 醞釀向上 ({len(df_up)})")
+        st.markdown(f"#### 第一步（找獵物）：💡 醞釀向上 ({len(df_up)})  [日線剛站上均線發動優先]")
         if df_up.empty:
             st.info("目前無『醞釀向上』標的。")
         else:
