@@ -124,7 +124,6 @@ def update_selected_from_search():
 def update_other_inputs():
     save_settings()
 
-# 解析字串為字典的公用函數
 def parse_watchlist(text):
     watchlist = {}
     for line in text.strip().split('\n'):
@@ -147,12 +146,11 @@ hide_st_style = """
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
-# 建立 4 個分頁
 tab_dashboard, tab_rules, tab_settings, tab_war_room = st.tabs(["📊 看盤儀表板", "📖 策略判斷原則", "⚙️ 自選股編輯", "⚔️ 買賣戰情室"])
 display_df = pd.DataFrame()
 
 # ==========================================
-# 分頁 3：自選股編輯頁面 (支援 3 組切換編輯)
+# 分頁 3：自選股編輯頁面
 # ==========================================
 with tab_settings:
     st.subheader("⚙️ 編輯自選股清單（支援 3 組股票組合）")
@@ -178,7 +176,6 @@ with tab_settings:
             st.session_state.watchlist_3_text = u_input3
             save_settings()
 
-# 取得當前選取的自選股清單
 if st.session_state.current_group_choice == "自選股 2":
     ACTIVE_WATCHLIST = parse_watchlist(st.session_state.watchlist_2_text)
 elif st.session_state.current_group_choice == "自選股 3":
@@ -196,12 +193,14 @@ with tab_rules:
     
     ### 🧬 股性自適應分流機制
     
-    * **💰 貨幣市場 / 超短債存債模式**：
-        * **鎖定條件**：SGOV、BIL、SHV 等超短天期美國國債或貨幣市場 ETF。
-        * **操作機制**：**【免出場長期持有】**。此類標的波動極微且每月穩定配息，不適用波段技術指標，系統自動鎖定為長期領息，永不發出賣出訊號。
+    * **🔵 核心資產／免出場長期持有模式 (Buy and Hold)**：
+        * **鎖定條件**：
+          1. 貨幣與超短天期國債（SGOV、BIL、SHV、00719B）。
+          2. **大盤原型指數 ETF（0050、VOO、QQQM、SPY、IVV）**。
+        * **操作機制**：**【免出場長期持有】**。超短債穩定收息；大盤指數隨全球經濟成長滾動長期複利。此類核心資產不適用短期波段停損停利，系統鎖定為長期續抱，永不發出賣出訊號。
 
-    * **🏛️ 穩健權值 / 指數ETF型**：
-        * **鎖定條件**：大型權值、傳產循環股（ATR% < 3.5%），或大盤指數 ETF（如 0050、VOO、QQQM 等）。
+    * **🏛️ 穩健個股型**：
+        * **鎖定條件**：大型權值、傳產循環股（ATR% < 3.5%）。
         * **進場條件**：長短線共振帶量買進（或 SPC 極端超跌爆量）。
         * **出場機制**：啟動【日線敏捷出場】。當週線 DIF 下降且日線雙指標翻空時出場，防止回吐高檔波段利潤。
     
@@ -213,20 +212,6 @@ with tab_rules:
             2. **終極出清防線**：週 MACD 正式死叉時，原則出清剩餘 50% 持股。
             3. **🛡️ 近 1 年歷史低點保護網**：若股價處於近 1 年歷史相對低點區間（位階 ≤ 25%），系統自動攔截賣出訊號，改為提示【歷史低檔打底 (抱牢)】，切勿在相對低檔盲目出清。
             4. **💡 強彈保護傘**：若單日大漲逾 4%，改為提示【分批停利】，兼顧獲利落袋與防守。
-
-    ---
-
-    ### 🟢 買入標準 (滿足其一即為買點)
-    1. **順勢共振買點 (長短線雙多)**：週線 MACD>0 且 5W>10W；日線 MACD>0 且 5MA>10MA，當日成交量 > 5日均量。
-    2. **逆勢超跌買點 (爆量 + RSI 雙濾網)**：跌破 LCL (20MA-2σ)，成交量大於 5日均量 2 倍，且 RSI(14) < 30。
-
-    ### 💡 雙向預警雷達 (以「週線大底即將完成」為最高優先)
-    - **🌟 醞釀向上 (週大底+日發動)**：週 MACD 綠柱收斂站上 5W 均線，且**日線已同步翻多轉強**。大波段起跑最高勝率標的！
-    - **💡 醞釀向上 (週大底打底)**：週 MACD 綠柱持續縮減或 RSI 低檔脫離，長線大格局底部沉澱中。
-    - **⚠️ 醞釀向下 (提防見頂)**：(需滿足 **週線 DIF 下降** 前提) MACD 紅柱縮減且股價跌破 5MA；或 RSI(14) ≥ 70。
-
-    ### 🟡 避免殺低防護網 (極重要)
-    - 若已滿足賣出條件，但股價**已跌破 LCL 下軌** 或 **RSI(14) ≤ 30**，代表短線極度超跌。系統會強制攔截賣出訊號，改為提示**「🟡 避免殺低」**，提醒等待技術性反彈回 10MA 再行減碼。
     """)
 
 # ==========================================
@@ -252,15 +237,19 @@ def get_market_trend(ticker):
         elif curr_hist < 0 and curr_hist > prev_hist:
             return {"status": "🟡 跌深反彈 (水下金叉)", "advice": "大盤有落底跡象，可以 30%~50% 資金小量試單，嚴設前低停損。", "color": "#fff8e1"}
         else:
-            return {"status": "🔴 空頭發散", "advice": "大盤趨勢向上，建議縮小操作部位至 30% 以下，多看少做保本為主。", "color": "#ffebee"}
+            return {"status": "🔴 空頭發散", "advice": "大盤趨勢向下，建議縮小操作部位至 30% 以下，多看少做保本為主。", "color": "#ffebee"}
     except Exception:
         return None
 
 @st.cache_data(ttl=300)
 def analyze_signals_comprehensive(watchlist):
     results = []
-    CASH_BOND_LIST = {"SGOV", "BIL", "SHV", "00719B.TW"}
-    ETF_WHITE_LIST = {"0050.TW", "VOO", "QQQM", "SPY", "IVV", "0056.TW", "00878.TW", "00919.TW"}
+    
+    # 🌟 核心長期持有白名單（含超短債與大盤原型指數 ETF）
+    BUY_AND_HOLD_LIST = {
+        "SGOV", "BIL", "SHV", "00719B.TW",       # 貨幣與超短天期國債
+        "0050.TW", "VOO", "QQQM", "SPY", "IVV"   # 大盤核心原型 ETF
+    }
 
     for ticker, name in watchlist.items():
         try:
@@ -293,21 +282,15 @@ def analyze_signals_comprehensive(watchlist):
             curr_close, prev_close = close_d.iloc[-1], close_d.iloc[-2]
             atr_pct = (atr14 / curr_close) * 100 if curr_close > 0 else 0
             
-            is_cash_bond = (ticker in CASH_BOND_LIST) or ("美債" in name and "0-3" in name) or ("超短債" in name)
-            is_etf_or_index = (
-                ticker in ETF_WHITE_LIST 
-                or "ETF" in name.upper() 
-                or "50" in name 
-                or "指數" in name
-            )
+            # 判斷是否為核心長期持有免出場標的
+            is_buy_and_hold = (ticker in BUY_AND_HOLD_LIST) or ("美債" in name and "0-3" in name)
             
-            if is_cash_bond:
+            if is_buy_and_hold:
                 is_high_momentum = False
-                stock_profile = "💰 收息·存債"
-                stock_category = "穩健型"
-            elif is_etf_or_index:
-                is_high_momentum = False
-                stock_profile = "🏛️ 穩健·指數ETF"
+                if "SGOV" in ticker or "BIL" in ticker or "SHV" in ticker or "債" in name:
+                    stock_profile = "💰 核心·收息存債"
+                else:
+                    stock_profile = "🏛️ 核心·指數複利"
                 stock_category = "穩健型"
             else:
                 is_high_momentum = (atr_pct >= 3.5)
@@ -386,10 +369,15 @@ def analyze_signals_comprehensive(watchlist):
             is_weekly_bottom_forming = (w_hist < 0 and w_hist > w_prev_hist) or (w_close > w_ma5 and w_hist < 0) or (w_rsi <= 40)
             is_daily_launching = (curr_close > curr_ma5_d) and (curr_hist_d > prev_hist_d)
 
+            # ==========================================
             # 綜合唯一建議判定
-            if is_cash_bond:
-                rec_text = "🔵 長期持有 (領息)"
-                detail_reason = "【免出場存債模式】純收息超短債資產，波動極低且穩定配息，免受波段指標干擾，建議長期續抱。"
+            # ==========================================
+            if is_buy_and_hold:
+                rec_text = "🔵 長期持有 (核心被動)"
+                if "債" in stock_profile:
+                    detail_reason = "【免出場核心資產】純收息超短債，波動極低且穩定配息，免受技術指標干擾，建議長期續抱。"
+                else:
+                    detail_reason = "【免出場核心資產】大盤原型指數，隨經濟成長滾動長期複利，不執行技術面停損停利，建議定期定額或逢低續抱。"
             else:
                 if target_pos_d == 100 and vol_condition_d:
                     if not is_weekly_bullish:
@@ -513,7 +501,8 @@ def style_dataframe(df):
         return ''
     def color_rec(val):
         if isinstance(val, str):
-            if '分批停利' in val: return 'color: #e65100; font-weight: bold; background-color: #fff3e0;'
+            if '長期持有' in val: return 'color: #0d47a1; font-weight: bold; background-color: #e3f2fd;'
+            elif '分批停利' in val: return 'color: #e65100; font-weight: bold; background-color: #fff3e0;'
             elif '打底' in val: return 'color: #1565c0; font-weight: bold; background-color: #e3f2fd;'
             elif '週大底+日發動' in val: return 'color: #2e7d32; font-weight: bold; background-color: #e8f5e9;'
             elif '週大底打底' in val: return 'color: #1565c0; font-weight: bold; background-color: #e3f2fd;'
@@ -567,7 +556,6 @@ def get_chart_data(ticker, interval, period):
 # 分頁 1：主看盤儀表板 
 # ==========================================
 with tab_dashboard:
-    # 頂部控制面板：選擇自選股組合
     col_group, col_empty = st.columns([1, 1])
     with col_group:
         current_group = st.radio(
@@ -581,7 +569,6 @@ with tab_dashboard:
             save_settings()
             st.rerun()
 
-    # 總體資金水位儀表板 
     market_ticker = st.text_input("📊 設定總體資金水位參考標的 (預設 0050.TW)：", key="market_ticker_input", on_change=update_other_inputs).strip().upper()
     with st.spinner(f"運算 {market_ticker} 總體指標中..."):
         market_trend = get_market_trend(market_ticker)
@@ -598,7 +585,6 @@ with tab_dashboard:
         else:
             st.warning(f"⚠️ 無法取得 {market_ticker} 的資料，請確認代碼是否正確。")
 
-    # 臨時標的快速分析
     st.divider()
     st.subheader("🔍 臨時標的快速分析")
     col_temp1, col_temp2, col_temp3 = st.columns([2, 2, 2])
@@ -637,14 +623,12 @@ with tab_dashboard:
             st.error("無法取得該代碼資料，請確認代碼是否正確。")
     st.divider()
     
-    # 主要分析運算 (使用當前選取的自選股組合)
     with st.spinner(f"正在綜合運算【{st.session_state.current_group_choice}】所有標的..."):
         display_df = analyze_signals_comprehensive(ACTIVE_WATCHLIST)
 
     if not display_df.empty:
         st.subheader(f"📊 【{st.session_state.current_group_choice}】狀態總覽 (長短線綜合唯一解 - 共 {len(display_df)} 檔)")
         
-        # 快速篩選器
         filter_opt = st.radio(
             "🔍 狀態篩選：", 
             ["👀 顯示全部", "🟢 只看買入", "💡 醞釀向上", "🔵 長期持有", "🟡 歷史打底", "🟠 分批停利", "⚠️ 醞釀向下", "🟠 建議減碼", "🟡 避免殺低", "🔴 只看賣出", "⚡ 剛發生交叉"], 
@@ -674,11 +658,10 @@ with tab_dashboard:
         elif filter_opt == "⚡ 剛發生交叉":
             filtered_df = filtered_df[filtered_df['最新動態'] != "-"]
 
-        # 依股性分區塊獨立呈現
         df_steady = filtered_df[filtered_df['股性類別'] == "穩健型"].drop(columns=['股性類別']).reset_index(drop=True)
         df_momentum = filtered_df[filtered_df['股性類別'] == "高動能型"].drop(columns=['股性類別']).reset_index(drop=True)
 
-        st.markdown(f"#### 🏛️ 穩健權值 / 指數ETF型（日線敏捷出場 / 存債） ({len(df_steady)} 檔)")
+        st.markdown(f"#### 🏛️ 穩健權值 / 核心長期持有型 ({len(df_steady)} 檔)")
         if df_steady.empty:
             st.info("目前無符合篩選條件的穩健型標的。")
         else:
@@ -711,7 +694,7 @@ with tab_dashboard:
                 selected_row_idx = ev_momentum.selection.rows[0]
                 st.session_state.selected_ticker = df_momentum.iloc[selected_row_idx]['代碼']
 
-    # --- 互動 K 線圖區塊 (日/週切換鈕已移至 Title 的右側) ---
+    # --- 互動 K 線圖區塊 ---
     st.divider()
     
     col_title, col_toggle = st.columns([3, 2])
@@ -835,7 +818,7 @@ with tab_dashboard:
                 st.warning("⚠️ 無法取得該標的的 K 線圖資料，請確認代碼是否正確。")
 
 # ==========================================
-# 分頁 4：買賣戰情室 (同步套用所選自選股組合)
+# 分頁 4：買賣戰情室
 # ==========================================
 with tab_war_room:
     st.subheader(f"⚔️ 買賣戰情室【{st.session_state.current_group_choice}】 (長短線雙週期綜合唯一解)")
@@ -846,13 +829,24 @@ with tab_war_room:
         df_up = display_df[display_df['建議'].str.contains("醞釀向上", na=False)].reset_index(drop=True)
         df_buy = display_df[display_df['建議'].str.contains("買入", na=False)].reset_index(drop=True)
         
+        df_hold_core = display_df[display_df['建議'].str.contains("長期持有", na=False)].reset_index(drop=True)
         df_bottom = display_df[display_df['建議'].str.contains("打底", na=False)].reset_index(drop=True)
         df_take_profit = display_df[display_df['建議'].str.contains("分批停利", na=False)].reset_index(drop=True)
         df_down = display_df[display_df['建議'].str.contains("醞釀向下", na=False)].reset_index(drop=True)
         df_trim = display_df[display_df['建議'].str.contains("減碼", na=False)].reset_index(drop=True)
         df_sell = display_df[display_df['建議'].str.contains("賣出", na=False)].reset_index(drop=True)
-        df_hold = display_df[display_df['建議'].str.contains("避免殺低", na=False)].reset_index(drop=True)
+        df_defense = display_df[display_df['建議'].str.contains("避免殺低", na=False)].reset_index(drop=True)
         
+        if not df_hold_core.empty:
+            st.markdown(f"#### 🏛️ 核心資產（免出場長期持有）：🔵 長期持有 ({len(df_hold_core)})")
+            ev_core = st.dataframe(
+                style_dataframe(df_hold_core.drop(columns=['股性類別'])), use_container_width=True,
+                on_select="rerun", selection_mode="single-row", key="war_core",
+                column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
+            )
+            if ev_core.selection.rows:
+                st.session_state.selected_ticker = df_hold_core.iloc[ev_core.selection.rows[0]]['代碼']
+
         st.markdown(f"#### 第一步（找獵物）：💡 醞釀向上 ({len(df_up)})  [週線大底即將完成最高優先]")
         if df_up.empty:
             st.info("目前無『醞釀向上』標的。")
@@ -933,17 +927,17 @@ with tab_war_room:
             if ev_sell.selection.rows:
                 st.session_state.selected_ticker = df_sell.iloc[ev_sell.selection.rows[0]]['代碼']
 
-        st.markdown(f"#### 第三步（最後確認）：🟡 避免殺低 ({len(df_hold)})")
-        if df_hold.empty:
+        st.markdown(f"#### 第三步（最後確認）：🟡 避免殺低 ({len(df_defense)})")
+        if df_defense.empty:
             st.info("目前無『避免殺低』標的。")
         else:
             ev_hold = st.dataframe(
-                style_dataframe(df_hold.drop(columns=['股性類別'])), use_container_width=True, 
+                style_dataframe(df_defense.drop(columns=['股性類別'])), use_container_width=True, 
                 on_select="rerun", selection_mode="single-row", key="war_hold",
                 column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
             )
             if ev_hold.selection.rows:
-                st.session_state.selected_ticker = df_hold.iloc[ev_hold.selection.rows[0]]['代碼']
+                st.session_state.selected_ticker = df_defense.iloc[ev_hold.selection.rows[0]]['代碼']
 
 # --- 版權宣告與免責聲明 ---
 st.divider()
