@@ -339,7 +339,6 @@ def analyze_signals_comprehensive(watchlist):
             is_above_ma5 = (curr_close > curr_ma5_d)
             is_daily_stopping_drop = is_above_ma5 and is_daily_golden_cross
 
-            # 判斷是否連續 2 天收盤站穩 20MA
             is_standing_on_ma20_2days = (curr_close > ma20_d.iloc[-1]) and (prev_close > ma20_d.iloc[-2])
 
             if len(close_w) >= 35:
@@ -388,7 +387,6 @@ def analyze_signals_comprehensive(watchlist):
             
             is_weekly_bottom_forming = (w_hist < 0 and w_hist > w_prev_hist) or (w_close > w_ma5 and w_hist < 0) or (w_rsi <= 40)
             
-            # 🛡️ 核心防假突破：若週線死叉，日線發動必須「連續 2 天站穩 20MA」才成立
             if weekly_macd_dead:
                 is_daily_launching = (curr_close > curr_ma5_d) and (curr_hist_d > prev_hist_d) and is_standing_on_ma20_2days
             else:
@@ -600,7 +598,6 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
 
         c_close = close.iloc[loc]
         p_close = close.iloc[loc - 1]
-        p2_close = close.iloc[loc - 2] if loc >= 2 else p_close
         c_high = high.iloc[loc]
         c_low = low.iloc[loc]
         c_vol = volume.iloc[loc]
@@ -641,7 +638,6 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
         is_above_ma5 = (c_close > c_ma5)
         is_daily_stopping_drop = is_above_ma5 and is_daily_golden_cross
 
-        # 歷史回溯之「連續 2 天站穩 20MA」判定
         is_standing_on_ma20_2days = (c_close > c_ma20) and (p_close > p_ma20)
 
         weekly_dif_decreasing = False
@@ -685,7 +681,6 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
         target_pos_d = (50 if c_hist > 0 else 0) + (50 if c_ma5 > c_ma10 else 0)
         vol_condition_d = c_vol > c_vol_ma5
         
-        # 🛡️ 歷史回溯中加入防假突破
         if weekly_macd_dead:
             is_daily_launching = (c_close > c_ma5) and (c_hist > p_hist) and is_standing_on_ma20_2days
         else:
@@ -745,13 +740,13 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
                         else:
                             rec_text = "🟡 觀察 (抱牢主升)"
                             detail_reason = "【動能型抱牢】日線震盪洗盤，但週線 5W>10W 且 MACD>0，無懼短線震盪續抱。"
-                    else:
-                        if weekly_dif_decreasing:
-                            rec_text = "🔴 賣出 (日線敏捷)"
-                            detail_reason = "【穩健型防守】週線DIF下降且日線翻空，保護獲利果斷全出。"
                         else:
-                            rec_text = "🟡 觀察"
-                            detail_reason = "【防守延遲】日線翻空，但週線DIF仍上升，暫緩賣出。"
+                            if weekly_dif_decreasing:
+                                rec_text = "🔴 賣出 (日線敏捷)"
+                                detail_reason = "【穩健型防守】週線DIF下降且日線翻空，保護獲利果斷全出。"
+                            else:
+                                rec_text = "🟡 觀察"
+                                detail_reason = "【防守延遲】日線翻空，但週線DIF仍上升，暫緩賣出。"
             else:
                 if weekly_dif_decreasing and c_rsi >= 70:
                     rec_text = "⚠️ 醞釀向下"
@@ -786,6 +781,97 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
         })
 
     return pd.DataFrame(daily_records)
+
+# ==========================================
+# 深度分析綜合判斷結論生成函數
+# ==========================================
+def generate_summary_insight(df_records, ticker, name):
+    if df_records.empty:
+        return ""
+    
+    latest_row = df_records.iloc[0]
+    latest_date = latest_row['日期']
+    latest_rec = latest_row['建議']
+    latest_reason = latest_row['詳細判定原因']
+    latest_profile = latest_row['股性模式']
+    
+    # 統計建議分布
+    rec_counts = df_records['建議'].value_counts()
+    dominant_rec = rec_counts.index[0]
+    total_days = len(df_records)
+    
+    # 判定大格局定調
+    if "長期持有" in latest_rec:
+        trend_status = "🔵 核心被動持有結構（不執行波段停損停利）"
+        action_advice = "隨全球總體經濟長期成長滾動複利或穩定收取配息，免受短期技術指標干擾，建議定期定額或逢低持續續抱。"
+        box_color = "#e3f2fd"
+        border_color = "#90caf9"
+    elif "破底分批加碼" in latest_rec:
+        trend_status = "🟢 破底翻多築底確認（左側進場區）"
+        action_advice = "已跌破近 1 年低點但日線雙指標翻多站穩 5MA，空方動能耗盡，可採取金字塔分批攤平加碼策略，切勿恐慌殺低。"
+        box_color = "#e8f5e9"
+        border_color = "#a5d6a7"
+    elif "破底打底觀察" in latest_rec:
+        trend_status = "🟡 破底未止跌打底區（左側觀望中）"
+        action_advice = "跌破 1 年歷史低點且日線指標尚未金叉向上，空方慣性未改。目前嚴禁盲目提早進場接刀，務必耐心等待站穩 5MA 與 MACD 翻紅！"
+        box_color = "#fffde7"
+        border_color = "#fff59d"
+    elif "走勢向上" in latest_rec:
+        trend_status = "🟢 順勢多頭波段（右側攻擊架構）"
+        action_advice = "長短線指標維持共振多頭，波段趨勢向上確立，持股者續抱主升段，新進部位以 5MA 或 10MA 為移動防守基準。"
+        box_color = "#e8f5e9"
+        border_color = "#a5d6a7"
+    elif "賣出" in latest_rec:
+        trend_status = "🔴 空方主導／出清防守結構"
+        action_advice = "技術結構處於空頭或高檔正式破位，波段動能出清中。空手者切勿因單日短線強彈貿然追高；持股者應嚴守紀律停損或出清剩餘部位保本。"
+        box_color = "#ffebee"
+        border_color = "#ef9a9a"
+    elif "停利" in latest_rec or "減碼" in latest_rec:
+        trend_status = "🟠 高檔轉折／防守減碼結構"
+        action_advice = "短線強彈逢高遇壓力，或週線跌破短期均線。建議先收割 30%~50% 獲利落袋為安，其餘以日 5MA 或前低做最後防線。"
+        box_color = "#fff3e0"
+        border_color = "#ffcc80"
+    elif "避免殺低" in latest_rec:
+        trend_status = "🟡 極端負乖離超賣區（等待技術反彈）"
+        action_advice = "股價跌破布林下軌且 RSI 處於嚴重超賣，隨時醞釀技術性急彈，切勿在此刻恐慌殺低在阿呆谷，等待回測 10MA 再行減碼。"
+        box_color = "#fff8e1"
+        border_color = "#ffe082"
+    else:
+        trend_status = "🟡 震盪整理／方向未明觀察區"
+        action_advice = "多空指標未完全同步，方向尚不明朗。多看少做，保留充裕現金，靜待關鍵型態或帶量長紅明確表態。"
+        box_color = "#f5f5f5"
+        border_color = "#e0e0e0"
+
+    # 檢視區間內有無重大事件
+    event_notes = []
+    actions_found = [act for act in df_records['最新動態'] if act != "-"]
+    if actions_found:
+        event_notes.append(f"區間內觸發關鍵動態：{'、'.join(set(actions_found))}")
+    if (df_records['收盤價(漲跌)'].str.contains(r'\+([5-9]|\d{2})\.')).any():
+        event_notes.append("區間內曾出現單日漲幅逾 5% 的強彈衝刺，但需提防是否為空頭架構下的假突破。")
+    if (df_records['收盤價(漲跌)'].str.contains(r'\-([5-9]|\d{2})\.')).any():
+        event_notes.append("區間內曾遭逢單日大跌逾 5% 的長黑賣壓，空方籌碼尚未完全消化。")
+
+    event_text = ("；".join(event_notes) + "。") if event_notes else "區間內無特殊突發量價突破事件，維持常態波動走勢。"
+
+    summary_html = f"""
+    <div style="background-color: {box_color}; border: 1.5px solid {border_color}; border-radius: 8px; padding: 16px 20px; margin-top: 20px;">
+        <h4 style="margin: 0 0 10px 0; color: #1a1a1a; font-size: 18px;">💡 綜合判斷結論：{ticker} - {name}</h4>
+        <p style="margin: 4px 0; font-size: 15px; color: #222;">
+            <b>【當前定調】</b>：<span style="font-weight: bold;">{trend_status}</span>
+        </p>
+        <p style="margin: 4px 0; font-size: 14px; color: #444;">
+            <b>【最新狀態 ({latest_date})】</b>：<b>{latest_rec}</b> ｜ 股性：<b>{latest_profile}</b> ｜ 原因：{latest_reason}
+        </p>
+        <p style="margin: 4px 0; font-size: 14px; color: #444;">
+            <b>【區間走勢特徵】</b>：過去 {total_days} 個交易日中，以「{dominant_rec}」為主要常態。{event_text}
+        </p>
+        <p style="margin: 8px 0 0 0; font-size: 15px; font-weight: bold; color: #b71c1c;">
+            🎯 實戰操作建議：{action_advice}
+        </p>
+    </div>
+    """
+    return summary_html
 
 def style_dataframe(df):
     def color_trend(val):
@@ -1276,7 +1362,7 @@ with tab_war_room:
                 st.session_state.selected_ticker = df_defense.iloc[ev_hold.selection.rows[0]]['代碼']
 
 # ==========================================
-# 分頁 5：🔬 深度分析 (依日期由新到舊排列)
+# 分頁 5：🔬 深度分析 (含綜合判斷結論卡片)
 # ==========================================
 with tab_deep_dive:
     st.subheader("🔬 個股走勢深度分析")
@@ -1326,6 +1412,10 @@ with tab_deep_dive:
                 use_container_width=True,
                 hide_index=True
             )
+
+            # 💡 在表格正下方（原圖紅框處）渲染綜合判斷結論
+            summary_card = generate_summary_insight(hist_signals_df, target_ticker, target_name)
+            st.markdown(summary_card, unsafe_allow_html=True)
 
 # --- 版權宣告與免責聲明 ---
 st.divider()
