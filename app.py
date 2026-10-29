@@ -740,23 +740,23 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
                         else:
                             rec_text = "🟡 觀察"
                             detail_reason = "【防守延遲】日線翻空，但週線DIF仍上升，暫緩賣出。"
-            else:
-                if weekly_dif_decreasing and c_rsi >= 70:
-                    rec_text = "⚠️ 醞釀向下"
-                    detail_reason = f"【逼近超買】週線DIF下降且日RSI高達 ({c_rsi:.1f})，極度貪婪提防見頂拉回。"
-                elif weekly_dif_decreasing and c_hist > 0 and c_hist < p_hist and c_close < c_ma5:
-                    rec_text = "⚠️ 醞釀向下"
-                    detail_reason = "【動能衰退】日MACD紅柱縮減且週線DIF下降，多方推升無力防範頭部成型。"
-                elif is_weekly_bottom_forming:
-                    if is_daily_launching:
-                        rec_text = "🌟 醞釀向上 (週大底+日發動)"
-                        detail_reason = "【週線大底＋日線連續2天站穩20MA】週MACD綠柱持續收斂打底，且日線已實質站穩月線2日確認發動，大波段起跑首選！"
-                    else:
-                        rec_text = "💡 醞釀向上 (週大底打底)"
-                        detail_reason = "【週線大底沉澱】週MACD綠柱收斂或低檔超賣，大格局正築底中，適合左側分批布局。"
                 else:
-                    rec_text = "🟡 觀察"
-                    detail_reason = "【方向分歧】指標未完全同步，維持觀望。"
+                    if weekly_dif_decreasing and c_rsi >= 70:
+                        rec_text = "⚠️ 醞釀向下"
+                        detail_reason = f"【逼近超買】週線DIF下降且日RSI高達 ({c_rsi:.1f})，極度貪婪提防見頂拉回。"
+                    elif weekly_dif_decreasing and c_hist > 0 and c_hist < p_hist and c_close < c_ma5:
+                        rec_text = "⚠️ 醞釀向下"
+                        detail_reason = "【動能衰退】日MACD紅柱縮減且週線DIF下降，多方推升無力防範頭部成型。"
+                    elif is_weekly_bottom_forming:
+                        if is_daily_launching:
+                            rec_text = "🌟 醞釀向上 (週大底+日發動)"
+                            detail_reason = "【週線大底＋日線連續2天站穩20MA】週MACD綠柱持續收斂打底，且日線已實質站穩月線2日確認發動，大波段起跑首選！"
+                        else:
+                            rec_text = "💡 醞釀向上 (週大底打底)"
+                            detail_reason = "【週線大底沉澱】週MACD綠柱收斂或低檔超賣，大格局正築底中，適合左側分批布局。"
+                    else:
+                        rec_text = "🟡 觀察"
+                        detail_reason = "【方向分歧】指標未完全同步，維持觀望。"
 
             if c_close <= c_lcl and c_vol > c_vol_ma5 * 2 and c_rsi < 30:
                 rec_text = "🟢 逢低買入"
@@ -773,19 +773,12 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
             "詳細判定原因": detail_reason
         })
 
-    # ==========================================
-    # 🎯 明日 5MA 扣抵與翻揚門檻價即時推算
-    # ==========================================
     ma5_deduction_info = None
     if len(close) >= 5:
         curr_p = close.iloc[-1]
-        # 明日扣抵值為 5 天前收盤價 (close.iloc[-5])
         deduction_price = close.iloc[-5]
-        # 過去 4 天 (包含今天) 收盤價總和
         sum_prev_4 = close.iloc[-4:].sum()
-        # 站上 5MA 臨界價：P > (sum_prev_4 + P)/5 => 4P > sum_prev_4 => P > sum_prev_4 / 4
         stand_on_ma5_price = sum_prev_4 / 4.0
-        # 翻揚門檻：明日收盤價 > 明日扣抵價
         turn_up_price = deduction_price
         diff_pct = ((turn_up_price - curr_p) / curr_p) * 100 if curr_p > 0 else 0
         stand_diff_pct = ((stand_on_ma5_price - curr_p) / curr_p) * 100 if curr_p > 0 else 0
@@ -802,7 +795,7 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
     return pd.DataFrame(daily_records), ma5_deduction_info
 
 # ==========================================
-# 深度分析綜合判斷結論生成函數 (整合 5MA 翻揚預算)
+# 深度分析綜合判斷結論生成函數 (修正 HTML 格式)
 # ==========================================
 def generate_summary_insight(df_records, ticker, name, ma5_info=None):
     if df_records.empty:
@@ -870,35 +863,22 @@ def generate_summary_insight(df_records, ticker, name, ma5_info=None):
 
     event_text = ("；".join(event_notes) + "。") if event_notes else "區間內無特殊突發量價突破事件，維持常態波動走勢。"
 
-    ma5_text = ""
+    ma5_html = ""
     if ma5_info:
-        ma5_text = f"""
-        <p style="margin: 4px 0; font-size: 14px; color: #1565c0;">
-            <b>【明日 5MA 翻揚展望】</b>：明日扣抵價為 <b>{ma5_info['deduction_price']:.2f} 元</b>。
-            明日收盤需達 <b>{ma5_info['stand_on_ma5_price']:.2f} 元 ({ma5_info['stand_diff_pct']:+.2f}%)</b> 方能實質站上 5MA；
-            需收在 <b>{ma5_info['turn_up_price']:.2f} 元 ({ma5_info['turn_up_diff_pct']:+.2f}%)</b> 以上，日 5MA 斜率才會正式走平翻揚向上。
-        </p>
-        """
+        ma5_html = f'<div style="margin: 6px 0; font-size: 14px; color: #1565c0;"><b>【明日 5MA 翻揚展望】</b>：明日扣抵價為 <b>{ma5_info["deduction_price"]:.2f} 元</b>。明日收盤需達 <b>{ma5_info["stand_on_ma5_price"]:.2f} 元 ({ma5_info["stand_diff_pct"]:+.2f}%)</b> 方能實質站上 5MA；需收在 <b>{ma5_info["turn_up_price"]:.2f} 元 ({ma5_info["turn_up_diff_pct"]:+.2f}%)</b> 以上，日 5MA 斜率才會正式走平翻揚向上。</div>'
 
-    summary_html = f"""
-    <div style="background-color: {box_color}; border: 1.5px solid {border_color}; border-radius: 8px; padding: 16px 20px; margin-top: 20px;">
-        <h4 style="margin: 0 0 10px 0; color: #1a1a1a; font-size: 18px;">💡 綜合判斷結論：{ticker} - {name}</h4>
-        <p style="margin: 4px 0; font-size: 15px; color: #222;">
-            <b>【當前定調】</b>：<span style="font-weight: bold;">{trend_status}</span>
-        </p>
-        <p style="margin: 4px 0; font-size: 14px; color: #444;">
-            <b>【最新狀態 ({latest_date})】</b>：<b>{latest_rec}</b> ｜ 股性：<b>{latest_profile}</b> ｜ 原因：{latest_reason}
-        </p>
-        {ma5_text}
-        <p style="margin: 4px 0; font-size: 14px; color: #444;">
-            <b>【區間走勢特徵】</b>：過去 {total_days} 個交易日中，以「{dominant_rec}」為主要常態。{event_text}
-        </p>
-        <p style="margin: 8px 0 0 0; font-size: 15px; font-weight: bold; color: #b71c1c;">
-            🎯 實戰操作建議：{action_advice}
-        </p>
-    </div>
-    """
-    return summary_html
+    # 去除多餘縮排空格，避免被 CommonMark 誤判為程式碼區塊
+    lines = [
+        f'<div style="background-color: {box_color}; border: 1.5px solid {border_color}; border-radius: 8px; padding: 16px 20px; margin-top: 20px;">',
+        f'<h4 style="margin: 0 0 10px 0; color: #1a1a1a; font-size: 18px;">💡 綜合判斷結論：{ticker} - {name}</h4>',
+        f'<div style="margin: 6px 0; font-size: 15px; color: #222;"><b>【當前定調】</b>：<span style="font-weight: bold;">{trend_status}</span></div>',
+        f'<div style="margin: 6px 0; font-size: 14px; color: #444;"><b>【最新狀態 ({latest_date})】</b>：<b>{latest_rec}</b> ｜ 股性：<b>{latest_profile}</b> ｜ 原因：{latest_reason}</div>',
+        ma5_html,
+        f'<div style="margin: 6px 0; font-size: 14px; color: #444;"><b>【區間走勢特徵】</b>：過去 {total_days} 個交易日中，以「{dominant_rec}」為主要常態。{event_text}</div>',
+        f'<div style="margin: 10px 0 0 0; font-size: 15px; font-weight: bold; color: #b71c1c;">🎯 實戰操作建議：{action_advice}</div>',
+        '</div>'
+    ]
+    return "".join(lines)
 
 def style_dataframe(df):
     def color_trend(val):
@@ -1428,7 +1408,6 @@ with tab_deep_dive:
         if hist_signals_df.empty:
             st.warning("⚠️ 所選時間區間內未包含任何開盤交易日或資料不足，請調整日期範圍。")
         else:
-            # 🎯 呈現明日 5MA 扣抵與翻揚門檻卡片
             if ma5_info:
                 st.markdown("---")
                 st.markdown(f"#### 🧭 明日 5MA 均線翻揚與站穩扣抵試算 ({target_ticker})")
@@ -1463,7 +1442,7 @@ with tab_deep_dive:
                 hide_index=True
             )
 
-            # 💡 表格正下方渲染綜合判斷結論
+            # 渲染綜合判斷結論
             summary_card = generate_summary_insight(hist_signals_df, target_ticker, target_name, ma5_info)
             st.markdown(summary_card, unsafe_allow_html=True)
 
