@@ -226,8 +226,129 @@ with tab_rules:
     """)
 
 # ==========================================
-# 核心函數定義區
+# 核心決策判斷引擎 (單一來源，杜絕縮排語法錯誤)
 # ==========================================
+def evaluate_strategy_signal(
+    curr_close, prev_close, c_vol, c_vol_ma5,
+    c_ma5, c_ma10, c_ma20, p_close, p_ma20,
+    c_hist, p_hist, c_rsi, c_lcl,
+    is_high_momentum, is_buy_and_hold, stock_profile,
+    is_broke_1y_low, low_1y_prev, percentile_1y,
+    weekly_dif_decreasing, weekly_ma_dead, weekly_macd_dead,
+    is_weekly_bullish, is_weekly_bottom_forming
+):
+    change_pct = ((curr_close - prev_close) / prev_close) * 100 if prev_close > 0 else 0
+
+    # 1. 核心長期持有 (免出場)
+    if is_buy_and_hold:
+        rec_text = "🔵 長期持有 (核心被動)"
+        if "債" in stock_profile:
+            detail_reason = "【免出場核心資產】純收息超短債，波動極低且穩定配息，免受技術指標干擾，建議長期續抱。"
+        else:
+            detail_reason = "【免出場核心資產】大盤原型指數，隨經濟成長滾動長期複利，不執行技術面停損停利，建議定期定額或逢低續抱。"
+        return rec_text, detail_reason
+
+    # 2. 方案 A 破底加碼 / 打底觀察
+    is_daily_golden_cross = (c_hist > 0) or (c_ma5 > c_ma10)
+    is_above_ma5 = (curr_close > c_ma5)
+    is_daily_stopping_drop = is_above_ma5 and is_daily_golden_cross
+
+    if is_broke_1y_low:
+        if is_daily_stopping_drop:
+            rec_text = "🟢 破底分批加碼"
+            detail_reason = f"【破底確認翻多】跌破近1年低點({low_1y_prev:.2f})後，日線已正式金叉(MACD或5MA翻多)且站上5MA，確認止跌轉強，啟動左側金字塔分批加碼！"
+        else:
+            rec_text = "🟡 破底打底觀察"
+            detail_reason = f"【破底未止跌】跌破近1年低點({low_1y_prev:.2f})，但日線 MA/MACD 尚未金叉轉強，空方慣性未改，暫緩攤平、耐心等待翻多信號！"
+        return rec_text, detail_reason
+
+    # 3. SPC 極端超跌
+    if curr_close <= c_lcl and c_vol > c_vol_ma5 * 2 and c_rsi < 30:
+        rec_text = "🟢 逢低買入"
+        detail_reason = f"【SPC極端超跌】跌破LCL、爆出2倍均量且RSI超賣({c_rsi:.1f})，籌碼換手醞釀強彈！"
+        return rec_text, detail_reason
+
+    # 判斷是否連續 2 天實質站穩 20MA
+    is_standing_on_ma20_2days = (curr_close > c_ma20) and (p_close > p_ma20)
+    if weekly_macd_dead:
+        is_daily_launching = (curr_close > c_ma5) and (c_hist > p_hist) and is_standing_on_ma20_2days
+    else:
+        is_daily_launching = (curr_close > c_ma5) and (c_hist > p_hist)
+
+    target_pos_d = (50 if c_hist > 0 else 0) + (50 if c_ma5 > c_ma10 else 0)
+    vol_condition_d = c_vol > c_vol_ma5
+
+    # 4. 日線雙指標翻多帶量 (走勢向上)
+    if target_pos_d == 100 and vol_condition_d:
+        if is_weekly_bullish:
+            rec_text = "🟢 走勢向上"
+            detail_reason = "【長短線共振帶量】週線維持長多，日線雙指標翻多且成交量超越5日均量，確立波段走勢向上！"
+        else:
+            rec_text = "🟡 觀察"
+            detail_reason = "【短多長空】日線翻多帶量，但週線長線格局尚未同步，暫作觀察。"
+        return rec_text, detail_reason
+
+    # 5. 日線雙指標翻空防守 (target_pos_d == 0)
+    if target_pos_d == 0:
+        if c_rsi <= 30 or curr_close <= c_lcl:
+            rec_text = "🟡 避免殺低"
+            detail_reason = f"【嚴重負乖離】日線跌破LCL或RSI極度超賣({c_rsi:.1f})，切勿恐慌殺低，靜待技術反彈。"
+            return rec_text, detail_reason
+
+        if is_high_momentum:
+            if is_weekly_bottom_forming:
+                if is_daily_launching:
+                    rec_text = "🌟 醞釀向上 (週大底+日發動)"
+                    detail_reason = "【週線大底＋日線連續2天站穩20MA】週MACD綠柱持續收斂打底，且日線已實質站穩月線2日確認發動，大波段起跑首選！"
+                else:
+                    rec_text = "💡 醞釀向上 (週大底打底)"
+                    detail_reason = "【週線大底沉澱】週MACD綠柱收斂或低檔超賣，大格局正築底中，適合左側分批布局。"
+            elif percentile_1y <= 25.0:
+                rec_text = "🟡 歷史低檔打底 (抱牢)"
+                detail_reason = f"【歷史相對低點保護】近1年位階僅 {percentile_1y:.1f}%(≤25%)，基期極低，技術死叉具滯後性，低接者抱牢勿殺低！"
+            elif weekly_macd_dead:
+                if change_pct >= 4.0:
+                    rec_text = "🟠 分批停利 (強彈中)"
+                    detail_reason = f"【低接強彈保護】週線雖死叉，但當日強漲 {change_pct:.2f}%，先獲利減碼 30%~50%，其餘看日 5MA 防守。"
+                else:
+                    rec_text = "🔴 賣出 (動能出清)"
+                    detail_reason = "【動能型終極出場】週MACD正式死叉確認波段結束，建議出清剩餘 50% 部位。"
+            elif weekly_ma_dead:
+                rec_text = "🟠 減碼 (週MA死叉)"
+                detail_reason = "【動能型第一防線】週 5W 跌破 10W，先行減碼 50% 鎖利，其餘等週MACD確認。"
+            else:
+                rec_text = "🟡 觀察 (抱牢主升)"
+                detail_reason = "【動能型抱牢】日線震盪洗盤，但週線 5W>10W 且 MACD>0，無懼短線震盪續抱。"
+            return rec_text, detail_reason
+        else:
+            if weekly_dif_decreasing:
+                rec_text = "🔴 賣出 (日線敏捷)"
+                detail_reason = "【穩健型防守】週線DIF下降且日線翻空，保護獲利果斷全出。"
+            else:
+                rec_text = "🟡 觀察"
+                detail_reason = "【防守延遲】日線翻空，但週線DIF仍上升，暫緩賣出。"
+            return rec_text, detail_reason
+
+    # 6. 其他狀態 (部分指標分歧或轉折拉回)
+    if weekly_dif_decreasing and c_rsi >= 70:
+        rec_text = "⚠️ 醞釀向下"
+        detail_reason = f"【逼近超買】週線DIF下降且日RSI高達 ({c_rsi:.1f})，極度貪婪提防見頂拉回。"
+    elif weekly_dif_decreasing and c_hist > 0 and c_hist < p_hist and curr_close < c_ma5:
+        rec_text = "⚠️ 醞釀向下"
+        detail_reason = "【動能衰退】日MACD紅柱縮減且週線DIF下降，多方推升無力防範頭部成型。"
+    elif is_weekly_bottom_forming:
+        if is_daily_launching:
+            rec_text = "🌟 醞釀向上 (週大底+日發動)"
+            detail_reason = "【週線大底＋日線連續2天站穩20MA】週MACD綠柱持續收斂打底，且日線已實質站穩月線2日確認發動，大波段起跑首選！"
+        else:
+            rec_text = "💡 醞釀向上 (週大底打底)"
+            detail_reason = "【週線大底沉澱】週MACD綠柱收斂或低檔超賣，大格局正築底中，適合左側分批布局。"
+    else:
+        rec_text = "🟡 觀察"
+        detail_reason = "【方向分歧】指標未完全同步，維持觀望。"
+
+    return rec_text, detail_reason
+
 @st.cache_data(ttl=300)
 def get_market_trend(ticker):
     try:
@@ -289,6 +410,7 @@ def analyze_signals_comprehensive(watchlist):
             tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
             atr14 = tr.rolling(14).mean().iloc[-1]
             curr_close, prev_close = close_d.iloc[-1], close_d.iloc[-2]
+            p2_close = close_d.iloc[-3] if len(close_d) >= 3 else prev_close
             atr_pct = (atr14 / curr_close) * 100 if curr_close > 0 else 0
             
             is_buy_and_hold = (ticker in BUY_AND_HOLD_LIST) or ("美債" in name and "0-3" in name)
@@ -328,42 +450,29 @@ def analyze_signals_comprehensive(watchlist):
             lcl_d = ma20_d - 2 * std20_d
             curr_lcl_d = lcl_d.iloc[-1]
             
-            curr_ma5_d, curr_ma10_d = ma5_d.iloc[-1], ma10_d.iloc[-1]
+            curr_ma5_d, curr_ma10_d, curr_ma20_d = ma5_d.iloc[-1], ma10_d.iloc[-1], ma20_d.iloc[-1]
+            prev_ma20_d = ma20_d.iloc[-2]
             curr_hist_d, prev_hist_d = hist_d.iloc[-1], hist_d.iloc[-2]
             curr_vol_d, curr_vol_ma5_d = volume_d.iloc[-1], vol_ma5_d.iloc[-1]
-
-            is_daily_golden_cross = (curr_hist_d > 0) or (curr_ma5_d > curr_ma10_d)
-            is_above_ma5 = (curr_close > curr_ma5_d)
-            is_daily_stopping_drop = is_above_ma5 and is_daily_golden_cross
-
-            is_standing_on_ma20_2days = (curr_close > ma20_d.iloc[-1]) and (prev_close > ma20_d.iloc[-2])
 
             if len(close_w) >= 35:
                 ma5_w, ma10_w = close_w.rolling(5).mean(), close_w.rolling(10).mean()
                 ema12_w, ema26_w = close_w.ewm(span=12, adjust=False).mean(), close_w.ewm(span=26, adjust=False).mean()
                 dif_w = ema12_w - ema26_w
                 hist_w = dif_w - dif_w.ewm(span=9, adjust=False).mean()
-                delta_w = close_w.diff()
-                gw = delta_w.clip(lower=0).ewm(com=13, adjust=False).mean()
-                lw = (-1 * delta_w.clip(upper=0)).ewm(com=13, adjust=False).mean()
-                rsi_w = 100 - (100 / (1 + (gw / lw)))
                 
                 curr_dif_w, prev_dif_w = dif_w.iloc[-1], dif_w.iloc[-2]
                 weekly_dif_decreasing = curr_dif_w < prev_dif_w
                 weekly_ma_dead = (ma5_w.iloc[-1] < ma10_w.iloc[-1])
                 weekly_macd_dead = (hist_w.iloc[-1] <= 0)
                 is_weekly_bullish = (hist_w.iloc[-1] > 0 and ma5_w.iloc[-1] > ma10_w.iloc[-1])
-                
-                w_close = close_w.iloc[-1]
-                w_ma5 = ma5_w.iloc[-1]
-                w_hist, w_prev_hist = hist_w.iloc[-1], hist_w.iloc[-2]
-                w_rsi = rsi_w.iloc[-1]
+                is_weekly_bottom_forming = (hist_w.iloc[-1] < 0 and hist_w.iloc[-1] > hist_w.iloc[-2]) or (close_w.iloc[-1] > ma5_w.iloc[-1] and hist_w.iloc[-1] < 0)
             else:
                 weekly_dif_decreasing = False
                 weekly_ma_dead = False
                 weekly_macd_dead = False
                 is_weekly_bullish = True
-                w_close, w_ma5, w_hist, w_prev_hist, w_rsi = curr_close, curr_ma5_d, curr_hist_d, prev_hist_d, curr_rsi_d
+                is_weekly_bottom_forming = False
 
             change_pct = ((curr_close - prev_close) / prev_close) * 100
             if change_pct > 0: price_display = f"🔺 {curr_close:.2f} (+{change_pct:.2f}%)"
@@ -372,104 +481,23 @@ def analyze_signals_comprehensive(watchlist):
             
             last_date_str = close_d.index[-1].strftime('%m/%d')
             actions = []
-            if prev_close <= ma20_d.iloc[-2] and curr_close > ma20_d.iloc[-1]:
+            if prev_close <= prev_ma20_d and curr_close > curr_ma20_d:
                 actions.append(f"日線突破20MA ({last_date_str})")
             if prev_hist_d <= 0 and curr_hist_d > 0:
                 actions.append(f"日MACD剛金叉 ({last_date_str})")
             elif prev_hist_d >= 0 and curr_hist_d < 0:
                 actions.append(f"日MACD剛死叉 ({last_date_str})")
 
-            target_pos_d = (50 if curr_hist_d > 0 else 0) + (50 if curr_ma5_d > curr_ma10_d else 0)
-            vol_condition_d = curr_vol_d > curr_vol_ma5_d
-            
-            is_weekly_bottom_forming = (w_hist < 0 and w_hist > w_prev_hist) or (w_close > w_ma5 and w_hist < 0) or (w_rsi <= 40)
-            
-            if weekly_macd_dead:
-                is_daily_launching = (curr_close > curr_ma5_d) and (curr_hist_d > prev_hist_d) and is_standing_on_ma20_2days
-            else:
-                is_daily_launching = (curr_close > curr_ma5_d) and (curr_hist_d > prev_hist_d)
-
-            if is_buy_and_hold:
-                rec_text = "🔵 長期持有 (核心被動)"
-                if "債" in stock_profile:
-                    detail_reason = "【免出場核心資產】純收息超短債，波動極低且穩定配息，免受技術指標干擾，建議長期續抱。"
-                else:
-                    detail_reason = "【免出場核心資產】大盤原型指數，隨經濟成長滾動長期複利，不執行技術面停損停利，建議定期定額或逢低續抱。"
-            
-            elif is_broke_1y_low:
-                if is_daily_stopping_drop:
-                    rec_text = "🟢 破底分批加碼"
-                    detail_reason = f"【破底確認翻多】跌破近1年低點({low_1y_prev:.2f})後，日線已正式金叉(MACD或5MA翻多)且站上5MA，確認止跌轉強，啟動左側金字塔分批加碼！"
-                else:
-                    rec_text = "🟡 破底打底觀察"
-                    detail_reason = f"【破底未止跌】跌破近1年低點({low_1y_prev:.2f})，但日線 MA/MACD 尚未金叉轉強，空方慣性未改，暫緩攤平、耐心等待翻多信號！"
-
-            else:
-                if target_pos_d == 100 and vol_condition_d:
-                    if not is_weekly_bullish:
-                        rec_text = "🟡 觀察"
-                        detail_reason = "【短多長空】日線翻多帶量，但週線長線格局尚未同步，暫作觀察。"
-                    else:
-                        rec_text = "🟢 走勢向上"
-                        detail_reason = "【長短線共振帶量】週線維持長多，日線雙指標翻多且成交量超越5日均量，確立波段走勢向上！"
-                
-                elif target_pos_d == 0:
-                    if curr_rsi_d <= 30 or curr_close <= curr_lcl_d:
-                        rec_text = "🟡 避免殺低"
-                        detail_reason = f"【嚴重負乖離】日線跌破LCL或RSI極度超賣({curr_rsi_d:.1f})，切勿恐慌殺低，靜待技術反彈。"
-                    else:
-                        if is_high_momentum:
-                            if is_weekly_bottom_forming:
-                                if is_daily_launching:
-                                    rec_text = "🌟 醞釀向上 (週大底+日發動)"
-                                    detail_reason = "【週線大底＋日線連續2天站穩20MA】週MACD綠柱持續收斂打底，且日線已實質站穩月線2日確認發動，大波段起跑首選！"
-                                else:
-                                    rec_text = "💡 醞釀向上 (週大底打底)"
-                                    detail_reason = "【週線大底沉澱】週MACD綠柱收斂或低檔超賣，大格局正築底中，適合左側分批布局。"
-                            elif percentile_1y <= 25.0:
-                                rec_text = "🟡 歷史低檔打底 (抱牢)"
-                                detail_reason = f"【歷史相對低點保護】近1年位階僅 {percentile_1y:.1f}%(≤25%)，基期極低，技術死叉具滯後性，低接者抱牢勿殺低！"
-                            elif weekly_macd_dead:
-                                if change_pct >= 4.0:
-                                    rec_text = "🟠 分批停利 (強彈中)"
-                                    detail_reason = f"【低接強彈保護】週線雖死叉，但當日強漲 {change_pct:.2f}%，先獲利減碼 30%~50%，其餘看日 5MA 防守。"
-                                else:
-                                    rec_text = "🔴 賣出 (動能出清)"
-                                    detail_reason = "【動能型終極出場】週MACD正式死叉確認波段結束，建議出清剩餘 50% 部位。"
-                            elif weekly_ma_dead:
-                                rec_text = "🟠 減碼 (週MA死叉)"
-                                detail_reason = "【動能型第一防線】週 5W 跌破 10W，先行減碼 50% 鎖利，其餘等週MACD確認。"
-                            else:
-                                rec_text = "🟡 觀察 (抱牢主升)"
-                                detail_reason = "【動能型抱牢】日線震盪洗盤，但週線 5W>10W 且 MACD>0，無懼短線震盪續抱。"
-                        else:
-                            if weekly_dif_decreasing:
-                                rec_text = "🔴 賣出 (日線敏捷)"
-                                detail_reason = "【穩健型防守】週線DIF下降且日線翻空，保護獲利果斷全出。"
-                            else:
-                                rec_text = "🟡 觀察"
-                                detail_reason = "【防守延遲】日線翻空，但週線DIF仍上升，暫緩賣出。"
-                else:
-                    if weekly_dif_decreasing and curr_rsi_d >= 70:
-                        rec_text = "⚠️ 醞釀向下"
-                        detail_reason = f"【逼近超買】週線DIF下降且日RSI高達 ({curr_rsi_d:.1f})，極度貪婪提防見頂拉回。"
-                    elif weekly_dif_decreasing and curr_hist_d > 0 and curr_hist_d < prev_hist_d and curr_close < curr_ma5_d:
-                        rec_text = "⚠️ 醞釀向下"
-                        detail_reason = "【動能衰退】日MACD紅柱縮減且週線DIF下降，多方推升無力防範頭部成型。"
-                    elif is_weekly_bottom_forming:
-                        if is_daily_launching:
-                            rec_text = "🌟 醞釀向上 (週大底+日發動)"
-                            detail_reason = "【週線大底＋日線連續2天站穩20MA】週MACD綠柱持續收斂打底，且日線已實質站穩月線2日確認發動，大波段起跑首選！"
-                        else:
-                            rec_text = "💡 醞釀向上 (週大底打底)"
-                            detail_reason = "【週線大底沉澱】週MACD綠柱收斂或低檔超賣，大格局正築底中，適合左側分批布局。"
-                    else:
-                        rec_text = "🟡 觀察"
-                        detail_reason = "【方向分歧】指標未完全同步，維持觀望。"
-
-                if curr_close <= curr_lcl_d and curr_vol_d > curr_vol_ma5_d * 2 and curr_rsi_d < 30:
-                    rec_text = "🟢 逢低買入"
-                    detail_reason = f"【SPC極端超跌】跌破LCL、爆出2倍均量且RSI超賣({curr_rsi_d:.1f})，籌碼換手醞釀強彈！"
+            # 呼叫獨立核心決策函式
+            rec_text, detail_reason = evaluate_strategy_signal(
+                curr_close, prev_close, curr_vol_d, curr_vol_ma5_d,
+                curr_ma5_d, curr_ma10_d, curr_ma20_d, prev_close, prev_ma20_d,
+                curr_hist_d, prev_hist_d, curr_rsi_d, curr_lcl_d,
+                is_high_momentum, is_buy_and_hold, stock_profile,
+                is_broke_1y_low, low_1y_prev, percentile_1y,
+                weekly_dif_decreasing, weekly_ma_dead, weekly_macd_dead,
+                is_weekly_bullish, is_weekly_bottom_forming
+            )
 
             results.append({
                 "代碼": ticker, 
@@ -628,12 +656,6 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
 
         is_broke_1y_low = (c_close <= l_1y_prev * 1.01) or (percentile_1y <= 10.0)
 
-        is_daily_golden_cross = (c_hist > 0) or (c_ma5 > c_ma10)
-        is_above_ma5 = (c_close > c_ma5)
-        is_daily_stopping_drop = is_above_ma5 and is_daily_golden_cross
-
-        is_standing_on_ma20_2days = (c_close > c_ma20) and (p_close > p_ma20)
-
         weekly_dif_decreasing = False
         is_weekly_bullish = True
         weekly_macd_dead = False
@@ -672,95 +694,16 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
         elif p_hist >= 0 and c_hist < 0:
             actions.append(f"日MACD剛死叉 ({date_short})")
 
-        target_pos_d = (50 if c_hist > 0 else 0) + (50 if c_ma5 > c_ma10 else 0)
-        vol_condition_d = c_vol > c_vol_ma5
-        
-        if weekly_macd_dead:
-            is_daily_launching = (c_close > c_ma5) and (c_hist > p_hist) and is_standing_on_ma20_2days
-        else:
-            is_daily_launching = (c_close > c_ma5) and (c_hist > p_hist)
-
-        if is_buy_and_hold:
-            rec_text = "🔵 長期持有 (核心被動)"
-            if "債" in stock_profile:
-                detail_reason = "【免出場核心資產】純收息超短債，波動極低且穩定配息，免受技術指標干擾，建議長期續抱。"
-            else:
-                detail_reason = "【免出場核心資產】大盤原型指數，隨經濟成長滾動長期複利，不執行技術面停損停利，建議定期定額或逢低續抱。"
-
-        elif is_broke_1y_low:
-            if is_daily_stopping_drop:
-                rec_text = "🟢 破底分批加碼"
-                detail_reason = f"【破底確認翻多】跌破近1年低點({l_1y_prev:.2f})後，日線已正式金叉(MACD或5MA翻多)且站上5MA，確認止跌轉強，啟動左側金字塔分批加碼！"
-            else:
-                rec_text = "🟡 破底打底觀察"
-                detail_reason = f"【破底未止跌】跌破近1年低點({l_1y_prev:.2f})，但日線 MA/MACD 尚未金叉轉強，空方慣性未改，暫緩攤平、耐心等待翻多信號！"
-
-        else:
-            if target_pos_d == 100 and vol_condition_d:
-                if not is_weekly_bullish:
-                    rec_text = "🟡 觀察"
-                    detail_reason = "【短多長空】日線翻多帶量，但週線長線格局尚未同步，暫作觀察。"
-                else:
-                    rec_text = "🟢 走勢向上"
-                    detail_reason = "【長短線共振帶量】週線維持長多，日線雙指標翻多且成交量超越5日均量，確立波段走勢向上！"
-
-            elif target_pos_d == 0:
-                if c_rsi <= 30 or c_close <= c_lcl:
-                    rec_text = "🟡 避免殺低"
-                    detail_reason = f"【嚴重負乖離】日線跌破LCL或RSI極度超賣({c_rsi:.1f})，切勿恐慌殺低，靜待技術反彈。"
-                else:
-                    if is_high_momentum:
-                        if is_weekly_bottom_forming:
-                            if is_daily_launching:
-                                rec_text = "🌟 醞釀向上 (週大底+日發動)"
-                                detail_reason = "【週線大底＋日線連續2天站穩20MA】週MACD綠柱持續收斂打底，且日線已實質站穩月線2日確認發動，大波段起跑首選！"
-                            else:
-                                rec_text = "💡 醞釀向上 (週大底打底)"
-                                detail_reason = "【週線大底沉澱】週MACD綠柱收斂或低檔超賣，大格局正築底中，適合左側分批布局。"
-                        elif percentile_1y <= 25.0:
-                            rec_text = "🟡 歷史低檔打底 (抱牢)"
-                            detail_reason = f"【歷史相對低點保護】近1年位階僅 {percentile_1y:.1f}%(≤25%)，基期極低，技術死叉具滯後性，低接者抱牢勿殺低！"
-                        elif weekly_macd_dead:
-                            if change_pct >= 4.0:
-                                rec_text = "🟠 分批停利 (強彈中)"
-                                detail_reason = f"【低接強彈保護】週線雖死叉，但當日強漲 {change_pct:.2f}%，先獲利減碼 30%~50%，其餘看日 5MA 防守。"
-                            else:
-                                rec_text = "🔴 賣出 (動能出清)"
-                                detail_reason = "【動能型終極出場】週MACD正式死叉確認波段結束，建議出清剩餘 50% 部位。"
-                        elif weekly_ma_dead:
-                            rec_text = "🟠 減碼 (週MA死叉)"
-                            detail_reason = "【動能型第一防線】週 5W 跌破 10W，先行減碼 50% 鎖利，其餘等週MACD確認。"
-                        else:
-                            rec_text = "🟡 觀察 (抱牢主升)"
-                            detail_reason = "【動能型抱牢】日線震盪洗盤，但週線 5W>10W 且 MACD>0，無懼短線震盪續抱。"
-                    else:
-                        if weekly_dif_decreasing:
-                            rec_text = "🔴 賣出 (日線敏捷)"
-                            detail_reason = "【穩健型防守】週線DIF下降且日線翻空，保護獲利果斷全出。"
-                        else:
-                            rec_text = "🟡 觀察"
-                            detail_reason = "【防守延遲】日線翻空，但週線DIF仍上升，暫緩賣出。"
-                else:
-                    if weekly_dif_decreasing and c_rsi >= 70:
-                        rec_text = "⚠️ 醞釀向下"
-                        detail_reason = f"【逼近超買】週線DIF下降且日RSI高達 ({c_rsi:.1f})，極度貪婪提防見頂拉回。"
-                    elif weekly_dif_decreasing and c_hist > 0 and c_hist < p_hist and c_close < c_ma5:
-                        rec_text = "⚠️ 醞釀向下"
-                        detail_reason = "【動能衰退】日MACD紅柱縮減且週線DIF下降，多方推升無力防範頭部成型。"
-                    elif is_weekly_bottom_forming:
-                        if is_daily_launching:
-                            rec_text = "🌟 醞釀向上 (週大底+日發動)"
-                            detail_reason = "【週線大底＋日線連續2天站穩20MA】週MACD綠柱持續收斂打底，且日線已實質站穩月線2日確認發動，大波段起跑首選！"
-                        else:
-                            rec_text = "💡 醞釀向上 (週大底打底)"
-                            detail_reason = "【週線大底沉澱】週MACD綠柱收斂或低檔超賣，大格局正築底中，適合左側分批布局。"
-                    else:
-                        rec_text = "🟡 觀察"
-                        detail_reason = "【方向分歧】指標未完全同步，維持觀望。"
-
-            if c_close <= c_lcl and c_vol > c_vol_ma5 * 2 and c_rsi < 30:
-                rec_text = "🟢 逢低買入"
-                detail_reason = f"【SPC極端超跌】跌破LCL、爆出2倍均量且RSI超賣({c_rsi:.1f})，籌碼換手醞釀強彈！"
+        # 歷史回溯同樣呼叫單一核心函式
+        rec_text, detail_reason = evaluate_strategy_signal(
+            c_close, p_close, c_vol, c_vol_ma5,
+            c_ma5, c_ma10, c_ma20, p_close, p_ma20,
+            c_hist, p_hist, c_rsi, c_lcl,
+            is_high_momentum, is_buy_and_hold, stock_profile,
+            is_broke_1y_low, l_1y_prev, percentile_1y,
+            weekly_dif_decreasing, weekly_ma_dead, weekly_macd_dead,
+            is_weekly_bullish, is_weekly_bottom_forming
+        )
 
         daily_records.append({
             "日期": date_str,
@@ -867,7 +810,6 @@ def generate_summary_insight(df_records, ticker, name, ma5_info=None):
     if ma5_info:
         ma5_html = f'<div style="margin: 6px 0; font-size: 14px; color: #1565c0;"><b>【明日 5MA 翻揚展望】</b>：明日扣抵價為 <b>{ma5_info["deduction_price"]:.2f} 元</b>。明日收盤需達 <b>{ma5_info["stand_on_ma5_price"]:.2f} 元 ({ma5_info["stand_diff_pct"]:+.2f}%)</b> 方能實質站上 5MA；需收在 <b>{ma5_info["turn_up_price"]:.2f} 元 ({ma5_info["turn_up_diff_pct"]:+.2f}%)</b> 以上，日 5MA 斜率才會正式走平翻揚向上。</div>'
 
-    # 去除多餘縮排空格，避免被 CommonMark 誤判為程式碼區塊
     lines = [
         f'<div style="background-color: {box_color}; border: 1.5px solid {border_color}; border-radius: 8px; padding: 16px 20px; margin-top: 20px;">',
         f'<h4 style="margin: 0 0 10px 0; color: #1a1a1a; font-size: 18px;">💡 綜合判斷結論：{ticker} - {name}</h4>',
