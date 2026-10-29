@@ -6,7 +6,6 @@ from plotly.subplots import make_subplots
 from streamlit_autorefresh import st_autorefresh
 import json
 import os
-import math
 from datetime import datetime, timedelta
 
 st.set_page_config(page_title="雙指標波段系統", page_icon="📈", layout="wide")
@@ -97,7 +96,6 @@ def save_settings():
     except Exception:
         pass
 
-# 初始化 Session State
 settings = load_settings()
 
 if 'selected_ticker' not in st.session_state:
@@ -134,21 +132,6 @@ def parse_watchlist(text):
             watchlist[ticker.strip()] = name.strip()
     return watchlist
 
-# 計算台股最小升降單位 (Tick)
-def get_tick_size(price):
-    if price < 10: return 0.01
-    elif price < 50: return 0.05
-    elif price < 100: return 0.1
-    elif price < 500: return 0.5
-    elif price < 1000: return 1.0
-    else: return 5.0
-
-# 向上取整至最小跳動檔位
-def round_up_tick(val):
-    tick = get_tick_size(val)
-    return math.ceil(val / tick) * tick
-
-# --- 隱藏 Streamlit 預設選單與浮水印 ---
 hide_st_style = """
             <style>
             #MainMenu {visibility: hidden;}
@@ -206,7 +189,6 @@ else:
 # ==========================================
 with tab_rules:
     st.header("📖 雙指標波段系統 - 策略判斷原則與決策流程邏輯")
-    
     st.markdown("""
     本系統採用**「長線保護短線」**的全方位跨週期綜合評估。**每檔股票只產出一個綜合最佳決策解**，線圖週期切換僅影響圖表顯示，不干擾決策信號。
     
@@ -225,16 +207,22 @@ with tab_rules:
     #### 2️⃣ 第二梯隊：資產配置核心（免出場長期持有）
     * **🏛️ 核心資產：`🔵 長期持有`**
         * **納入名單**：超短天期美債（SGOV、BIL 等）與大盤核心原型 ETF（0050、VOO、QQQM 等）。
-        * **實戰動作**：隨經濟長期成長滾動複利或穩定領息，**完全免疫短期技術出場信號**。
+        * **實戰動作**：隨經濟長期成長滾動複利或穩定領息，**完全免疫所有短期技術面出場信號**。
 
     #### 3️⃣ 第三梯隊：右側常規多頭波段（標準進場兩步曲）
     * **第一步（找獵物）：`💡 醞釀向上`**
-        * **優先準則**：以**「週線大底即將完成」**為核心。若週線 MACD 死叉，日線需連續 2 天站穩 20MA。
+        * **優先準則**：以**「週線大底即將完成」**為核心。
+        * **🛡️ 防假突破機制**：若**週線仍處於 MACD 死叉**空頭架構下，日線必須滿足**「連續 2 天收盤站穩 20MA」**才准觸發 `🌟 醞釀向上 (週大底+日發動)`。
     * **第二步（扣板機）：`🟢 走勢向上`**
-        * **觸發條件**：週線維持長多，日線雙指標翻多帶量突破。
+        * **觸發條件**：週線 MACD>0 且 5W>10W；日線 MACD>0 且 5MA>10MA，且當日成交量 > 5 日均量。
 
     #### 4️⃣ 第四梯隊：轉折防守與紀律出場管控
-    * **`🛡️ 歷史低檔打底`** $\rightarrow$ **`🟠 分批停利`** $\rightarrow$ **`⚠️ 醞釀向下`** $\rightarrow$ **`🟠 建議減碼50%`** $\rightarrow$ **`🔴 只看賣出`** $\rightarrow$ **`🟡 避免殺低`**。
+    * **`🛡️ 歷史低檔打底 (抱牢)`**：近 1 年位階 ≤ 25%，基期極低且非破底，指標死叉具滯後性，建議耐心抱牢。
+    * **`🟠 分批停利 (強彈中)`**：高動能標的雖週線死叉，但當日強漲 ≥ 4%，先獲利了結 30%~50%，其餘以日 5MA 防守。
+    * **`⚠️ 醞釀向下`**：週線 DIF 下降前提下，日 MACD 紅柱縮減且跌破 5MA，或 RSI ≥ 70。
+    * **`🟠 建議減碼 50%`**：高動能標的週 5W 跌破 10W，先行減碼鎖利。
+    * **`🔴 只看賣出`**：高動能型週 MACD 正式死叉出清；穩健型週 DIF 下降且日線雙指標翻空敏捷防守全出。
+    * **`🟡 避免殺低`**：已滿足賣出條件但跌破布林下軌（LCL）或 RSI ≤ 30，暫緩賣出等待反彈。
     """)
 
 # ==========================================
@@ -369,12 +357,13 @@ def analyze_signals_comprehensive(watchlist):
                 w_close = close_w.iloc[-1]
                 w_ma5 = ma5_w.iloc[-1]
                 w_hist, w_prev_hist = hist_w.iloc[-1], hist_w.iloc[-2]
+                w_rsi = rsi_w.iloc[-1]
             else:
                 weekly_dif_decreasing = False
                 weekly_ma_dead = False
                 weekly_macd_dead = False
                 is_weekly_bullish = True
-                w_close, w_ma5, w_hist, w_prev_hist = curr_close, curr_ma5_d, curr_hist_d, prev_hist_d
+                w_close, w_ma5, w_hist, w_prev_hist, w_rsi = curr_close, curr_ma5_d, curr_hist_d, prev_hist_d, curr_rsi_d
 
             change_pct = ((curr_close - prev_close) / prev_close) * 100
             if change_pct > 0: price_display = f"🔺 {curr_close:.2f} (+{change_pct:.2f}%)"
@@ -393,16 +382,13 @@ def analyze_signals_comprehensive(watchlist):
             target_pos_d = (50 if curr_hist_d > 0 else 0) + (50 if curr_ma5_d > curr_ma10_d else 0)
             vol_condition_d = curr_vol_d > curr_vol_ma5_d
             
-            is_weekly_bottom_forming = (w_hist < 0 and w_hist > w_prev_hist) or (w_close > w_ma5 and w_hist < 0)
+            is_weekly_bottom_forming = (w_hist < 0 and w_hist > w_prev_hist) or (w_close > w_ma5 and w_hist < 0) or (w_rsi <= 40)
             
             if weekly_macd_dead:
                 is_daily_launching = (curr_close > curr_ma5_d) and (curr_hist_d > prev_hist_d) and is_standing_on_ma20_2days
             else:
                 is_daily_launching = (curr_close > curr_ma5_d) and (curr_hist_d > prev_hist_d)
 
-            # ==========================================
-            # 綜合唯一建議判定
-            # ==========================================
             if is_buy_and_hold:
                 rec_text = "🔵 長期持有 (核心被動)"
                 if "債" in stock_profile:
@@ -529,7 +515,7 @@ def analyze_signals_comprehensive(watchlist):
     return df_results
 
 # ==========================================
-# 歷史逐日狀態回溯引擎 (專供深度分析 - 含 5MA 翻揚價計算)
+# 歷史逐日狀態回溯引擎 (專供深度分析)
 # ==========================================
 @st.cache_data(ttl=300)
 def generate_historical_signals_table(ticker, name, start_date, end_date):
@@ -624,17 +610,6 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
         c_atr14 = atr14.iloc[loc]
         atr_pct = (c_atr14 / c_close) * 100 if c_close > 0 else 0
 
-        # 計算明日 5MA 翻揚價與扣抵值
-        # 明日 5MA 計算會踢掉 loc-3 的價格 (即 4 天前收盤價)
-        deduction_price = close.iloc[loc - 3] if loc >= 3 else c_close
-        sum_prev4 = close.iloc[loc-3:loc+1].sum()  # 過去 4 天收盤價總和
-        req_above_5ma = sum_prev4 / 4.0            # 站上 5MA 需大於之基準
-        
-        # 翻揚目標價取「大於扣抵值」與「大於 4 天均價」之較大者，並往上進位至最小 Tick
-        target_reversal_val = max(deduction_price, req_above_5ma)
-        tick_sz = get_tick_size(target_reversal_val)
-        target_reversal_price = round_up_tick(target_reversal_val + 0.0001)
-
         if is_buy_and_hold:
             is_high_momentum = False
             if "SGOV" in ticker or "BIL" in ticker or "SHV" in ticker or "債" in name:
@@ -705,7 +680,6 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
         else:
             is_daily_launching = (c_close > c_ma5) and (c_hist > p_hist)
 
-        # 核心判定
         if is_buy_and_hold:
             rec_text = "🔵 長期持有 (核心被動)"
             if "債" in stock_profile:
@@ -793,36 +767,44 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
             "代碼": ticker,
             "名稱": name,
             "收盤價(漲跌)": price_display,
-            "明日扣抵價": f"{deduction_price:.2f}",
-            "翻揚目標價": f"{target_reversal_price:.2f}",
             "股性模式": stock_profile,
             "建議": rec_text,
             "最新動態": " / ".join(actions) if actions else "-",
             "詳細判定原因": detail_reason
         })
 
-    # 計算全期最新一日的「明日翻揚參數」供摘要卡片使用
-    latest_loc = len(close) - 1
-    latest_c = close.iloc[-1]
-    latest_deduct = close.iloc[latest_loc - 3] if latest_loc >= 3 else latest_c
-    latest_sum4 = close.iloc[latest_loc-3:latest_loc+1].sum()
-    latest_target_val = max(latest_deduct, latest_sum4 / 4.0)
-    latest_target_price = round_up_tick(latest_target_val + 0.0001)
-    req_growth_pct = ((latest_target_price - latest_c) / latest_c) * 100
+    # ==========================================
+    # 🎯 明日 5MA 扣抵與翻揚門檻價即時推算
+    # ==========================================
+    ma5_deduction_info = None
+    if len(close) >= 5:
+        curr_p = close.iloc[-1]
+        # 明日扣抵值為 5 天前收盤價 (close.iloc[-5])
+        deduction_price = close.iloc[-5]
+        # 過去 4 天 (包含今天) 收盤價總和
+        sum_prev_4 = close.iloc[-4:].sum()
+        # 站上 5MA 臨界價：P > (sum_prev_4 + P)/5 => 4P > sum_prev_4 => P > sum_prev_4 / 4
+        stand_on_ma5_price = sum_prev_4 / 4.0
+        # 翻揚門檻：明日收盤價 > 明日扣抵價
+        turn_up_price = deduction_price
+        diff_pct = ((turn_up_price - curr_p) / curr_p) * 100 if curr_p > 0 else 0
+        stand_diff_pct = ((stand_on_ma5_price - curr_p) / curr_p) * 100 if curr_p > 0 else 0
 
-    next_day_forecast = {
-        "current_close": latest_c,
-        "deduction_price": latest_deduct,
-        "target_price": latest_target_price,
-        "growth_pct": req_growth_pct
-    }
+        ma5_deduction_info = {
+            "current_price": curr_p,
+            "deduction_price": deduction_price,
+            "turn_up_price": turn_up_price,
+            "turn_up_diff_pct": diff_pct,
+            "stand_on_ma5_price": stand_on_ma5_price,
+            "stand_diff_pct": stand_diff_pct
+        }
 
-    return pd.DataFrame(daily_records), next_day_forecast
+    return pd.DataFrame(daily_records), ma5_deduction_info
 
 # ==========================================
-# 深度分析綜合判斷結論生成函數
+# 深度分析綜合判斷結論生成函數 (整合 5MA 翻揚預算)
 # ==========================================
-def generate_summary_insight(df_records, ticker, name, forecast_info=None):
+def generate_summary_insight(df_records, ticker, name, ma5_info=None):
     if df_records.empty:
         return ""
     
@@ -848,7 +830,7 @@ def generate_summary_insight(df_records, ticker, name, forecast_info=None):
         border_color = "#a5d6a7"
     elif "破底打底觀察" in latest_rec:
         trend_status = "🟡 破底未止跌打底區（左側觀望中）"
-        action_advice = "跌破 1 年歷史低點且日線指標尚未金叉向上，空方慣性未改。目前嚴禁盲目提早進場接刀，務必耐心等待站穩 5MA 與 MACD 翻紅！"
+        action_advice = "跌破 1 年歷史低點且日線指標尚未金叉向上，空方慣性未改。目前嚴禁盲目提早進場接刀，務必耐心等待指標翻多！"
         box_color = "#fffde7"
         border_color = "#fff59d"
     elif "走勢向上" in latest_rec:
@@ -888,17 +870,13 @@ def generate_summary_insight(df_records, ticker, name, forecast_info=None):
 
     event_text = ("；".join(event_notes) + "。") if event_notes else "區間內無特殊突發量價突破事件，維持常態波動走勢。"
 
-    # 均線翻揚預測段落
-    forecast_html = ""
-    if forecast_info:
-        tgt_p = forecast_info['target_price']
-        g_pct = forecast_info['growth_pct']
-        ded_p = forecast_info['deduction_price']
-        sign_str = f"+{g_pct:.2f}%" if g_pct > 0 else f"{g_pct:.2f}%"
-        color_g = "#d32f2f" if g_pct > 0 else "#388e3c"
-        forecast_html = f"""
-        <p style="margin: 6px 0; font-size: 14px; color: #1565c0;">
-            <b>【📐 明日 5MA 翻揚預算】</b>：明日扣抵值為 <b>{ded_p:.2f} 元</b>，明日收盤價至少需達 <b>{tgt_p:.2f} 元</b>（需漲幅 <span style="color:{color_g}; font-weight:bold;">{sign_str}</span>），5MA 才會實質站上並向上翻揚！
+    ma5_text = ""
+    if ma5_info:
+        ma5_text = f"""
+        <p style="margin: 4px 0; font-size: 14px; color: #1565c0;">
+            <b>【明日 5MA 翻揚展望】</b>：明日扣抵價為 <b>{ma5_info['deduction_price']:.2f} 元</b>。
+            明日收盤需達 <b>{ma5_info['stand_on_ma5_price']:.2f} 元 ({ma5_info['stand_diff_pct']:+.2f}%)</b> 方能實質站上 5MA；
+            需收在 <b>{ma5_info['turn_up_price']:.2f} 元 ({ma5_info['turn_up_diff_pct']:+.2f}%)</b> 以上，日 5MA 斜率才會正式走平翻揚向上。
         </p>
         """
 
@@ -911,7 +889,7 @@ def generate_summary_insight(df_records, ticker, name, forecast_info=None):
         <p style="margin: 4px 0; font-size: 14px; color: #444;">
             <b>【最新狀態 ({latest_date})】</b>：<b>{latest_rec}</b> ｜ 股性：<b>{latest_profile}</b> ｜ 原因：{latest_reason}
         </p>
-        {forecast_html}
+        {ma5_text}
         <p style="margin: 4px 0; font-size: 14px; color: #444;">
             <b>【區間走勢特徵】</b>：過去 {total_days} 個交易日中，以「{dominant_rec}」為主要常態。{event_text}
         </p>
@@ -1282,7 +1260,6 @@ with tab_war_room:
         df_sell = display_df[display_df['建議'].str.contains("賣出", na=False)].reset_index(drop=True)
         df_defense = display_df[display_df['建議'].str.contains("避免殺低", na=False)].reset_index(drop=True)
         
-        # 1️⃣ 第一梯隊：左側極限防護區
         if not df_dip_buy.empty:
             st.markdown(f"#### 🎯 破底加碼雷達（已確認翻多）：🟢 破底分批加碼 ({len(df_dip_buy)})")
             ev_dip = st.dataframe(
@@ -1305,7 +1282,6 @@ with tab_war_room:
                 st.session_state.selected_ticker = df_dip_watch.iloc[ev_watch.selection.rows[0]]['代碼']
             st.divider()
 
-        # 2️⃣ 第二梯隊：資產配置核心
         if not df_hold_core.empty:
             st.markdown(f"#### 🏛️ 核心資產（免出場長期持有）：🔵 長期持有 ({len(df_hold_core)})")
             ev_core = st.dataframe(
@@ -1316,7 +1292,6 @@ with tab_war_room:
             if ev_core.selection.rows:
                 st.session_state.selected_ticker = df_hold_core.iloc[ev_core.selection.rows[0]]['代碼']
 
-        # 3️⃣ 第三梯隊：右側常規多頭波段
         st.markdown(f"#### 第一步（找獵物）：💡 醞釀向上 ({len(df_up)})  [週線大底即將完成最高優先]")
         if df_up.empty:
             st.info("目前無『醞釀向上』標的。")
@@ -1343,7 +1318,6 @@ with tab_war_room:
                 
         st.divider()
 
-        # 4️⃣ 第四梯隊：轉折防守與出場管控
         if not df_bottom.empty:
             st.markdown(f"#### 🛡️ 歷史低檔保護（切勿殺低 / 抱牢）：🟡 歷史低檔打底 ({len(df_bottom)})")
             ev_bt = st.dataframe(
@@ -1399,3 +1373,107 @@ with tab_war_room:
                 st.session_state.selected_ticker = df_sell.iloc[ev_sell.selection.rows[0]]['代碼']
 
         st.markdown(f"#### 第三步（最後確認）：🟡 避免殺低 ({len(df_defense)})")
+        if df_defense.empty:
+            st.info("目前無『避免殺低』標的。")
+        else:
+            ev_hold = st.dataframe(
+                style_dataframe(df_defense.drop(columns=['股性類別'])), use_container_width=True, 
+                on_select="rerun", selection_mode="single-row", key="war_hold",
+                column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
+            )
+            if ev_hold.selection.rows:
+                st.session_state.selected_ticker = df_defense.iloc[ev_hold.selection.rows[0]]['代碼']
+
+# ==========================================
+# 分頁 5：🔬 深度分析 (含明日 5MA 翻揚扣抵試算)
+# ==========================================
+with tab_deep_dive:
+    st.subheader("🔬 個股走勢深度分析")
+    st.markdown("從當前自選股中挑選標的，並設定時間區間（預設往前回溯 2 個星期）。系統將逐日回溯該標的狀態，並依日期由新到舊排列呈現。")
+
+    col_stock, col_start, col_end = st.columns([2, 2, 2])
+    
+    deep_options_dict = ACTIVE_WATCHLIST.copy()
+    if temp_ticker and temp_ticker not in deep_options_dict:
+        disp_name = temp_name if temp_name else temp_ticker
+        deep_options_dict[temp_ticker] = disp_name
+    
+    deep_options = [f"{k} - {v}" for k, v in deep_options_dict.items()]
+
+    with col_stock:
+        default_deep_idx = 0
+        if st.session_state.selected_ticker:
+            for i, opt in enumerate(deep_options):
+                if opt.startswith(st.session_state.selected_ticker):
+                    default_deep_idx = i
+                    break
+        selected_deep_opt = st.selectbox("📌 選擇要分析的標的：", deep_options, index=default_deep_idx, key="deep_stock_select")
+        target_ticker = selected_deep_opt.split(" - ")[0] if selected_deep_opt else None
+        target_name = deep_options_dict.get(target_ticker, target_ticker)
+
+    today = datetime.now().date()
+    two_weeks_ago = today - timedelta(days=14)
+
+    with col_start:
+        start_date = st.date_input("📅 起始時間 (預設往前 2 週)：", value=two_weeks_ago, key="deep_start_date")
+    with col_end:
+        end_date = st.date_input("📅 結束時間：", value=today, key="deep_end_date")
+
+    if start_date > end_date:
+        st.error("⚠️ 起始時間必須早於或等於結束時間，請重新選擇日期區間。")
+    elif target_ticker:
+        with st.spinner(f"正在逐日回溯 {target_ticker} ({target_name}) 狀態明細與扣抵試算..."):
+            hist_signals_df, ma5_info = generate_historical_signals_table(target_ticker, target_name, start_date, end_date)
+
+        if hist_signals_df.empty:
+            st.warning("⚠️ 所選時間區間內未包含任何開盤交易日或資料不足，請調整日期範圍。")
+        else:
+            # 🎯 呈現明日 5MA 扣抵與翻揚門檻卡片
+            if ma5_info:
+                st.markdown("---")
+                st.markdown(f"#### 🧭 明日 5MA 均線翻揚與站穩扣抵試算 ({target_ticker})")
+                mc1, mc2, mc3 = st.columns(3)
+                
+                mc1.metric(
+                    label="📌 明日 5MA 扣抵值 (5日前價格)",
+                    value=f"{ma5_info['deduction_price']:.2f} 元",
+                    help="明日將剔除的價格。明日收盤價大於此價位，5MA 即會向上翻揚。"
+                )
+                mc2.metric(
+                    label="📈 5MA 翻揚需收 (目標價)",
+                    value=f"{ma5_info['turn_up_price']:.2f} 元",
+                    delta=f"{ma5_info['turn_up_diff_pct']:+.2f}% 距現價",
+                    delta_color="inverse" if ma5_info['turn_up_diff_pct'] > 0 else "normal",
+                    help="明日收盤需高於此價位，5MA 均線斜率才會由負轉正。"
+                )
+                mc3.metric(
+                    label="🛡️ 實質站上 5MA 需收 (目標價)",
+                    value=f"{ma5_info['stand_on_ma5_price']:.2f} 元",
+                    delta=f"{ma5_info['stand_diff_pct']:+.2f}% 距現價",
+                    delta_color="inverse" if ma5_info['stand_diff_pct'] > 0 else "normal",
+                    help="明日收盤需高於此價位，收盤價才會正式高於明日 5MA。"
+                )
+                st.markdown("---")
+
+            st.markdown(f"#### 📋 {target_ticker} - {target_name} 逐日狀態明細表（{start_date.strftime('%Y/%m/%d')} ~ {end_date.strftime('%Y/%m/%d')}，共 {len(hist_signals_df)} 個交易日）")
+            
+            st.dataframe(
+                style_dataframe(hist_signals_df),
+                use_container_width=True,
+                hide_index=True
+            )
+
+            # 💡 表格正下方渲染綜合判斷結論
+            summary_card = generate_summary_insight(hist_signals_df, target_ticker, target_name, ma5_info)
+            st.markdown(summary_card, unsafe_allow_html=True)
+
+# --- 版權宣告與免責聲明 ---
+st.divider()
+st.markdown(
+    """
+    <div style='text-align: center; color: #888888; font-size: 14px; padding: 10px;'>
+        本系統由 Robert 開發，僅供技術分析研究，非投資買賣建議
+    </div>
+    """, 
+    unsafe_allow_html=True
+)
