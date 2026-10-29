@@ -199,45 +199,33 @@ with tab_rules:
     
     ### 🧭 戰情室決策流程邏輯層次（由上而下執行原則）
     
-    在每日盤中或盤後決策時，請依據戰情室的四大梯隊由上而下依序檢視：
-
     #### 1️⃣ 第一梯隊：左側極限防護區（最高優先攔截）
     * **🎯 破底加碼雷達：`🟢 破底分批加碼` (方案 A 嚴格確認型)**
         * **觸發條件**：股價跌破近 1 年低點或處於年度極限低檔（≤ 10%），且**收盤價實質站上日 5MA**，同時**日 MACD 金叉 (柱狀 > 0) 或 5MA 金叉 10MA**。
         * **實戰動作**：確認空方動能耗盡且短線翻多，啟動左側金字塔分批攤平布局，**全面壓制任何賣出訊號**。
     * **👀 破底打底觀察：`🟡 破底打底觀察`**
-        * **觸發條件**：已實質破底或位階極低，但日線 MA/MACD 尚未金叉轉強（如跌勢中僅出現單日小紅 K）。
+        * **觸發條件**：已實質破底或位階極低，但日線 MA/MACD 尚未金叉轉強。
         * **實戰動作**：**嚴禁盲目提早進場接刀**，耐心等待日線指標正式翻多，保留現金銀彈。
 
     #### 2️⃣ 第二梯隊：資產配置核心（免出場長期持有）
     * **🏛️ 核心資產：`🔵 長期持有`**
         * **納入名單**：超短天期美債（SGOV、BIL 等）與大盤核心原型 ETF（0050、VOO、QQQM 等）。
-        * **實戰動作**：此類標的隨經濟長期成長滾動複利或穩定領息，**完全免疫所有短期技術面出場信號**，不執行波段停損停利，建議定期定額或逢低持續續抱。
+        * **實戰動作**：此類標的隨經濟長期成長滾動複利或穩定領息，**完全免疫所有短期技術面出場信號**。
 
     #### 3️⃣ 第三梯隊：右側常規多頭波段（標準進場兩步曲）
     * **第一步（找獵物）：`💡 醞釀向上`**
-        * **優先準則**：以**「週線大底即將完成」**為核心（週 MACD 綠柱收斂站上 5W 均線或週 RSI 低檔脫離）。若日線同步站上 5MA 翻多，則升級標記為 `🌟 醞釀向上 (週大底+日發動)`。
-        * **實戰動作**：列入每日重點買進追蹤清單，等待帶量共振。
+        * **優先準則**：以**「週線大底即將完成」**為核心。
+        * **🛡️ 防假突破機制**：若**週線仍處於 MACD 死叉**空頭架構下，日線必須滿足**「連續 2 天收盤站穩 20MA」**才准觸發 `🌟 醞釀向上 (週大底+日發動)`，徹底杜絕單日大漲隔日破功的一日行情誤導。
     * **第二步（扣板機）：`🟢 走勢向上`**
         * **觸發條件**：週線 MACD>0 且 5W>10W；日線 MACD>0 且 5MA>10MA，且當日成交量 > 5 日均量。
-        * **實戰動作**：長短線共振帶量確認多頭走勢，正式建立波段多頭部位。
 
     #### 4️⃣ 第四梯隊：轉折防守與紀律出場管控
-    * **`🛡️ 歷史低檔打底 (抱牢)`**：近 1 年位階 ≤ 25%，基期極低且非破底，指標死叉具滯後性，低接者切勿殺在阿呆谷，建議耐心抱牢。
-    * **`🟠 分批停利 (強彈中)`**：高動能標的雖週線死叉，但當日強漲 ≥ 4%，代表低檔買盤承接強烈，建議先獲利了結 30%~50%，其餘以日 5MA 防守。
-    * **`⚠️ 醞釀向下`**：週線 DIF 下降前提下，日 MACD 紅柱縮減且跌破 5MA，或 RSI ≥ 70，提防見頂拉回。
-    * **`🟠 建議減碼 50%`**：高動能標的週 5W 跌破 10W，啟動第一階段防線，先行減碼鎖利。
-    * **`🔴 只看賣出`**：
-        * **高動能型**：週 MACD 正式死叉，確認大波段結束，出清剩餘 50% 部位。
-        * **穩健型**：週線 DIF 下降且日線雙指標翻空，啟動日線敏捷防守果斷出場。
-    * **`🟡 避免殺低`**：已滿足賣出條件，但股價已跌破布林下軌（LCL）或 RSI ≤ 30，代表嚴重負乖離，強制暫緩賣出，等待反彈回 10MA 再行減碼。
-
-    ---
-    
-    ### 🧬 股性自適應分流門檻（ATR%）
-    * **動能(%) 計算**：以 14 日平均真實波動幅度除以股價得出（$ATR_{14} / Price \times 100\%$）。
-    * **高動能型 ($\ge 3.5\%$)**：中小型成長股，防守採週線雙死叉，容忍日線震盪洗盤，賺取倍數主升波。
-    * **穩健型 ($< 3.5\%$)**：大型權值與傳產循環股，防守採日線敏捷出場，保護高檔薄利。
+    * **`🛡️ 歷史低檔打底 (抱牢)`**：近 1 年位階 ≤ 25%，基期極低且非破底，指標死叉具滯後性，建議耐心抱牢。
+    * **`🟠 分批停利 (強彈中)`**：高動能標的雖週線死叉，但當日強漲 ≥ 4%，先獲利了結 30%~50%，其餘以日 5MA 防守。
+    * **`⚠️ 醞釀向下`**：週線 DIF 下降前提下，日 MACD 紅柱縮減且跌破 5MA，或 RSI ≥ 70。
+    * **`🟠 建議減碼 50%`**：高動能標的週 5W 跌破 10W，先行減碼鎖利。
+    * **`🔴 只看賣出`**：高動能型週 MACD 正式死叉出清；穩健型週 DIF 下降且日線雙指標翻空敏捷防守全出。
+    * **`🟡 避免殺低`**：已滿足賣出條件但跌破布林下軌（LCL）或 RSI ≤ 30，暫緩賣出等待反彈。
     """)
 
 # ==========================================
@@ -351,6 +339,9 @@ def analyze_signals_comprehensive(watchlist):
             is_above_ma5 = (curr_close > curr_ma5_d)
             is_daily_stopping_drop = is_above_ma5 and is_daily_golden_cross
 
+            # 判斷是否連續 2 天收盤站穩 20MA
+            is_standing_on_ma20_2days = (curr_close > ma20_d.iloc[-1]) and (prev_close > ma20_d.iloc[-2])
+
             if len(close_w) >= 35:
                 ma5_w, ma10_w = close_w.rolling(5).mean(), close_w.rolling(10).mean()
                 ema12_w, ema26_w = close_w.ewm(span=12, adjust=False).mean(), close_w.ewm(span=26, adjust=False).mean()
@@ -396,10 +387,15 @@ def analyze_signals_comprehensive(watchlist):
             vol_condition_d = curr_vol_d > curr_vol_ma5_d
             
             is_weekly_bottom_forming = (w_hist < 0 and w_hist > w_prev_hist) or (w_close > w_ma5 and w_hist < 0) or (w_rsi <= 40)
-            is_daily_launching = (curr_close > curr_ma5_d) and (curr_hist_d > prev_hist_d)
+            
+            # 🛡️ 核心防假突破：若週線死叉，日線發動必須「連續 2 天站穩 20MA」才成立
+            if weekly_macd_dead:
+                is_daily_launching = (curr_close > curr_ma5_d) and (curr_hist_d > prev_hist_d) and is_standing_on_ma20_2days
+            else:
+                is_daily_launching = (curr_close > curr_ma5_d) and (curr_hist_d > prev_hist_d)
 
             # ==========================================
-            # 綜合唯一建議判定 (🟢 走勢向上 取代 買入)
+            # 綜合唯一建議判定
             # ==========================================
             if is_buy_and_hold:
                 rec_text = "🔵 長期持有 (核心被動)"
@@ -434,7 +430,7 @@ def analyze_signals_comprehensive(watchlist):
                             if is_weekly_bottom_forming:
                                 if is_daily_launching:
                                     rec_text = "🌟 醞釀向上 (週大底+日發動)"
-                                    detail_reason = "【週線大底＋日線發動】週MACD綠柱持續收斂打底，日線已率先帶動站上5MA轉強，大波段起跑首選！"
+                                    detail_reason = "【週線大底＋日線連續2天站穩20MA】週MACD綠柱持續收斂打底，且日線已實質站穩月線2日確認發動，大波段起跑首選！"
                                 else:
                                     rec_text = "💡 醞釀向上 (週大底打底)"
                                     detail_reason = "【週線大底沉澱】週MACD綠柱收斂或低檔超賣，大格局正築底中，適合左側分批布局。"
@@ -471,7 +467,7 @@ def analyze_signals_comprehensive(watchlist):
                     elif is_weekly_bottom_forming:
                         if is_daily_launching:
                             rec_text = "🌟 醞釀向上 (週大底+日發動)"
-                            detail_reason = "【週線大底＋日線發動】週MACD綠柱持續收斂打底，日線已率先帶動站上5MA轉強，大波段起跑首選！"
+                            detail_reason = "【週線大底＋日線連續2天站穩20MA】週MACD綠柱持續收斂打底，且日線已實質站穩月線2日確認發動，大波段起跑首選！"
                         else:
                             rec_text = "💡 醞釀向上 (週大底打底)"
                             detail_reason = "【週線大底沉澱】週MACD綠柱收斂或低檔超賣，大格局正築底中，適合左側分批布局。"
@@ -531,15 +527,11 @@ def analyze_signals_comprehensive(watchlist):
 # ==========================================
 @st.cache_data(ttl=300)
 def generate_historical_signals_table(ticker, name, start_date, end_date):
-    """
-    依照使用者指定時間區間，逐日回溯該日期的完整狀態判定，產出如附件1、附件2的歷史明細表。
-    """
     BUY_AND_HOLD_LIST = {
         "SGOV", "BIL", "SHV", "00719B.TW",
         "0050.TW", "VOO", "QQQM", "SPY", "IVV"
     }
 
-    # 多抓取 250 天以計算 ATR、1 年高低點及 MACD
     fetch_start = start_date - timedelta(days=400)
     fetch_end = end_date + timedelta(days=2)
     df_d = yf.download(ticker, start=fetch_start.strftime('%Y-%m-%d'), end=fetch_end.strftime('%Y-%m-%d'), interval="1d", progress=False)
@@ -550,7 +542,6 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
         df_d.columns = df_d.columns.get_level_values(0)
     df_d = df_d.dropna()
 
-    # 計算全週期日線指標
     close = df_d['Close']
     high = df_d['High']
     low = df_d['Low']
@@ -581,7 +572,6 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
     std20 = close.rolling(20).std()
     lcl = ma20 - 2 * std20
 
-    # 抓取週線數據用於週線 DIF 輔助判定
     df_w = yf.download(ticker, period="3y", interval="1wk", progress=False)
     if not df_w.empty and len(df_w) >= 35:
         if isinstance(df_w.columns, pd.MultiIndex): df_w.columns = df_w.columns.get_level_values(0)
@@ -601,7 +591,6 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
     is_buy_and_hold = (ticker in BUY_AND_HOLD_LIST) or ("美債" in name and "0-3" in name)
 
     daily_records = []
-    # 篩選在 [start_date, end_date] 區間內的交易日 (由新到舊排序)
     trading_dates = [d for d in df_d.index if start_date <= d.date() <= end_date]
     trading_dates.sort(reverse=True)
 
@@ -611,6 +600,7 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
 
         c_close = close.iloc[loc]
         p_close = close.iloc[loc - 1]
+        p2_close = close.iloc[loc - 2] if loc >= 2 else p_close
         c_high = high.iloc[loc]
         c_low = low.iloc[loc]
         c_vol = volume.iloc[loc]
@@ -629,7 +619,6 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
         c_atr14 = atr14.iloc[loc]
         atr_pct = (c_atr14 / c_close) * 100 if c_close > 0 else 0
 
-        # 股性模式字串
         if is_buy_and_hold:
             is_high_momentum = False
             if "SGOV" in ticker or "BIL" in ticker or "SHV" in ticker or "債" in name:
@@ -640,7 +629,6 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
             is_high_momentum = (atr_pct >= 3.5)
             stock_profile = f"🚀 動能({atr_pct:.1f}%)" if is_high_momentum else f"🏛️ 穩健({atr_pct:.1f}%)"
 
-        # 近 1 年高低點
         lookback_len = min(250, loc)
         h_1y = high.iloc[loc - lookback_len:loc + 1].max()
         l_1y_prev = low.iloc[loc - lookback_len:loc].min() if lookback_len > 1 else low.iloc[loc]
@@ -649,12 +637,13 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
 
         is_broke_1y_low = (c_close <= l_1y_prev * 1.01) or (percentile_1y <= 10.0)
 
-        # 方案 A 止跌
         is_daily_golden_cross = (c_hist > 0) or (c_ma5 > c_ma10)
         is_above_ma5 = (c_close > c_ma5)
         is_daily_stopping_drop = is_above_ma5 and is_daily_golden_cross
 
-        # 週線輔助指標
+        # 歷史回溯之「連續 2 天站穩 20MA」判定
+        is_standing_on_ma20_2days = (c_close > c_ma20) and (p_close > p_ma20)
+
         weekly_dif_decreasing = False
         is_weekly_bullish = True
         weekly_macd_dead = False
@@ -677,7 +666,6 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
                 is_weekly_bullish = (w_curr_hist > 0 and w_curr_ma5 > w_curr_ma10)
                 is_weekly_bottom_forming = (w_curr_hist < 0 and w_curr_hist > w_prev_hist) or (w_curr_hist < 0 and c_close > w_curr_ma5)
 
-        # 漲跌呈現
         change_pct = ((c_close - p_close) / p_close) * 100
         if change_pct > 0: price_display = f"🔺 {c_close:.2f} (+{change_pct:.2f}%)"
         elif change_pct < 0: price_display = f"🔻 {c_close:.2f} ({change_pct:.2f}%)"
@@ -686,7 +674,6 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
         date_str = dt.strftime('%Y/%m/%d')
         date_short = dt.strftime('%m/%d')
 
-        # 最新動態
         actions = []
         if p_close <= p_ma20 and c_close > c_ma20:
             actions.append(f"日線突破20MA ({date_short})")
@@ -697,7 +684,12 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
 
         target_pos_d = (50 if c_hist > 0 else 0) + (50 if c_ma5 > c_ma10 else 0)
         vol_condition_d = c_vol > c_vol_ma5
-        is_daily_launching = (c_close > c_ma5) and (c_hist > p_hist)
+        
+        # 🛡️ 歷史回溯中加入防假突破
+        if weekly_macd_dead:
+            is_daily_launching = (c_close > c_ma5) and (c_hist > p_hist) and is_standing_on_ma20_2days
+        else:
+            is_daily_launching = (c_close > c_ma5) and (c_hist > p_hist)
 
         # 核心判定
         if is_buy_and_hold:
@@ -733,7 +725,7 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
                         if is_weekly_bottom_forming:
                             if is_daily_launching:
                                 rec_text = "🌟 醞釀向上 (週大底+日發動)"
-                                detail_reason = "【週線大底＋日線發動】週MACD綠柱持續收斂打底，日線已率先帶動站上5MA轉強，大波段起跑首選！"
+                                detail_reason = "【週線大底＋日線連續2天站穩20MA】週MACD綠柱持續收斂打底，且日線已實質站穩月線2日確認發動，大波段起跑首選！"
                             else:
                                 rec_text = "💡 醞釀向上 (週大底打底)"
                                 detail_reason = "【週線大底沉澱】週MACD綠柱收斂或低檔超賣，大格局正築底中，適合左側分批布局。"
@@ -770,7 +762,7 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
                 elif is_weekly_bottom_forming:
                     if is_daily_launching:
                         rec_text = "🌟 醞釀向上 (週大底+日發動)"
-                        detail_reason = "【週線大底＋日線發動】週MACD綠柱持續收斂打底，日線已率先帶動站上5MA轉強，大波段起跑首選！"
+                        detail_reason = "【週線大底＋日線連續2天站穩20MA】週MACD綠柱持續收斂打底，且日線已實質站穩月線2日確認發動，大波段起跑首選！"
                     else:
                         rec_text = "💡 醞釀向上 (週大底打底)"
                         detail_reason = "【週線大底沉澱】週MACD綠柱收斂或低檔超賣，大格局正築底中，適合左側分批布局。"
@@ -994,7 +986,7 @@ with tab_dashboard:
                 st.session_state.selected_ticker = df_steady.iloc[selected_row_idx]['代碼']
 
         st.write("")
-        st.markdown(f"#### 🚀 高動能波段型（週線雙死叉 ＋ 方案A破底加碼/歷史低點保護） ({len(df_momentum)} 檔)")
+        st.markdown(f"#### 🚀 高動能波段型（週線雙死叉 ＋ 防假突破站穩20MA雙確認） ({len(df_momentum)} 檔)")
         if df_momentum.empty:
             st.info("目前無符合篩選條件的高動能型標的。")
         else:
@@ -1329,7 +1321,6 @@ with tab_deep_dive:
         else:
             st.markdown(f"#### 📋 {target_ticker} - {target_name} 逐日狀態明細表（{start_date.strftime('%Y/%m/%d')} ~ {end_date.strftime('%Y/%m/%d')}，共 {len(hist_signals_df)} 個交易日）")
             
-            # 套用與主儀表板完全一致的著色樣式
             st.dataframe(
                 style_dataframe(hist_signals_df),
                 use_container_width=True,
