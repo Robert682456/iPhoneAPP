@@ -226,7 +226,7 @@ with tab_rules:
     """)
 
 # ==========================================
-# 核心決策判斷引擎 (單一來源，杜絕縮排語法錯誤)
+# 核心決策判斷引擎
 # ==========================================
 def evaluate_strategy_signal(
     curr_close, prev_close, c_vol, c_vol_ma5,
@@ -239,7 +239,6 @@ def evaluate_strategy_signal(
 ):
     change_pct = ((curr_close - prev_close) / prev_close) * 100 if prev_close > 0 else 0
 
-    # 1. 核心長期持有 (免出場)
     if is_buy_and_hold:
         rec_text = "🔵 長期持有 (核心被動)"
         if "債" in stock_profile:
@@ -248,7 +247,6 @@ def evaluate_strategy_signal(
             detail_reason = "【免出場核心資產】大盤原型指數，隨經濟成長滾動長期複利，不執行技術面停損停利，建議定期定額或逢低續抱。"
         return rec_text, detail_reason
 
-    # 2. 方案 A 破底加碼 / 打底觀察
     is_daily_golden_cross = (c_hist > 0) or (c_ma5 > c_ma10)
     is_above_ma5 = (curr_close > c_ma5)
     is_daily_stopping_drop = is_above_ma5 and is_daily_golden_cross
@@ -262,13 +260,11 @@ def evaluate_strategy_signal(
             detail_reason = f"【破底未止跌】跌破近1年低點({low_1y_prev:.2f})，但日線 MA/MACD 尚未金叉轉強，空方慣性未改，暫緩攤平、耐心等待翻多信號！"
         return rec_text, detail_reason
 
-    # 3. SPC 極端超跌
     if curr_close <= c_lcl and c_vol > c_vol_ma5 * 2 and c_rsi < 30:
         rec_text = "🟢 逢低買入"
         detail_reason = f"【SPC極端超跌】跌破LCL、爆出2倍均量且RSI超賣({c_rsi:.1f})，籌碼換手醞釀強彈！"
         return rec_text, detail_reason
 
-    # 判斷是否連續 2 天實質站穩 20MA
     is_standing_on_ma20_2days = (curr_close > c_ma20) and (p_close > p_ma20)
     if weekly_macd_dead:
         is_daily_launching = (curr_close > c_ma5) and (c_hist > p_hist) and is_standing_on_ma20_2days
@@ -278,7 +274,6 @@ def evaluate_strategy_signal(
     target_pos_d = (50 if c_hist > 0 else 0) + (50 if c_ma5 > c_ma10 else 0)
     vol_condition_d = c_vol > c_vol_ma5
 
-    # 4. 日線雙指標翻多帶量 (走勢向上)
     if target_pos_d == 100 and vol_condition_d:
         if is_weekly_bullish:
             rec_text = "🟢 走勢向上"
@@ -288,7 +283,6 @@ def evaluate_strategy_signal(
             detail_reason = "【短多長空】日線翻多帶量，但週線長線格局尚未同步，暫作觀察。"
         return rec_text, detail_reason
 
-    # 5. 日線雙指標翻空防守 (target_pos_d == 0)
     if target_pos_d == 0:
         if c_rsi <= 30 or curr_close <= c_lcl:
             rec_text = "🟡 避免殺低"
@@ -329,7 +323,6 @@ def evaluate_strategy_signal(
                 detail_reason = "【防守延遲】日線翻空，但週線DIF仍上升，暫緩賣出。"
             return rec_text, detail_reason
 
-    # 6. 其他狀態 (部分指標分歧或轉折拉回)
     if weekly_dif_decreasing and c_rsi >= 70:
         rec_text = "⚠️ 醞釀向下"
         detail_reason = f"【逼近超買】週線DIF下降且日RSI高達 ({c_rsi:.1f})，極度貪婪提防見頂拉回。"
@@ -410,7 +403,6 @@ def analyze_signals_comprehensive(watchlist):
             tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
             atr14 = tr.rolling(14).mean().iloc[-1]
             curr_close, prev_close = close_d.iloc[-1], close_d.iloc[-2]
-            p2_close = close_d.iloc[-3] if len(close_d) >= 3 else prev_close
             atr_pct = (atr14 / curr_close) * 100 if curr_close > 0 else 0
             
             is_buy_and_hold = (ticker in BUY_AND_HOLD_LIST) or ("美債" in name and "0-3" in name)
@@ -488,7 +480,6 @@ def analyze_signals_comprehensive(watchlist):
             elif prev_hist_d >= 0 and curr_hist_d < 0:
                 actions.append(f"日MACD剛死叉 ({last_date_str})")
 
-            # 呼叫獨立核心決策函式
             rec_text, detail_reason = evaluate_strategy_signal(
                 curr_close, prev_close, curr_vol_d, curr_vol_ma5_d,
                 curr_ma5_d, curr_ma10_d, curr_ma20_d, prev_close, prev_ma20_d,
@@ -543,7 +534,7 @@ def analyze_signals_comprehensive(watchlist):
     return df_results
 
 # ==========================================
-# 歷史逐日狀態回溯引擎 (專供深度分析)
+# 歷史逐日狀態回溯引擎
 # ==========================================
 @st.cache_data(ttl=300)
 def generate_historical_signals_table(ticker, name, start_date, end_date):
@@ -694,7 +685,6 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
         elif p_hist >= 0 and c_hist < 0:
             actions.append(f"日MACD剛死叉 ({date_short})")
 
-        # 歷史回溯同樣呼叫單一核心函式
         rec_text, detail_reason = evaluate_strategy_signal(
             c_close, p_close, c_vol, c_vol_ma5,
             c_ma5, c_ma10, c_ma20, p_close, p_ma20,
@@ -1161,7 +1151,7 @@ with tab_dashboard:
                 st.warning("⚠️ 無法取得該標的的 K 線圖資料，請確認代碼是否正確。")
 
 # ==========================================
-# 分頁 4：買賣戰情室
+# 分頁 4：買賣戰情室 (含各區塊右上角匯出報表)
 # ==========================================
 with tab_war_room:
     st.subheader(f"⚔️ 買賣戰情室【{st.session_state.current_group_choice}】 (長短線雙週期綜合唯一解)")
@@ -1182,8 +1172,27 @@ with tab_war_room:
         df_sell = display_df[display_df['建議'].str.contains("賣出", na=False)].reset_index(drop=True)
         df_defense = display_df[display_df['建議'].str.contains("避免殺低", na=False)].reset_index(drop=True)
         
+        today_str = datetime.now().strftime('%Y%m%d')
+        grp_name_clean = st.session_state.current_group_choice.replace(" ", "")
+
+        # 輔助函式：渲染標題與右上角匯出按鈕
+        def render_section_with_export(title_text, df_sec, key_prefix):
+            col_t, col_b = st.columns([4, 1])
+            with col_t:
+                st.markdown(f"#### {title_text}")
+            with col_b:
+                if not df_sec.empty:
+                    csv_bytes = df_sec.to_csv(index=False).encode('utf-8-sig')
+                    st.download_button(
+                        label="📥 匯出當日報表",
+                        data=csv_bytes,
+                        file_name=f"戰情室_{key_prefix}_{grp_name_clean}_{today_str}.csv",
+                        mime="text/csv",
+                        key=f"btn_exp_{key_prefix}"
+                    )
+
         if not df_dip_buy.empty:
-            st.markdown(f"#### 🎯 破底加碼雷達（已確認翻多）：🟢 破底分批加碼 ({len(df_dip_buy)})")
+            render_section_with_export(f"🎯 破底加碼雷達（已確認翻多）：🟢 破底分批加碼 ({len(df_dip_buy)})", df_dip_buy, "破底加碼")
             ev_dip = st.dataframe(
                 style_dataframe(df_dip_buy.drop(columns=['股性類別'])), use_container_width=True,
                 on_select="rerun", selection_mode="single-row", key="war_dip",
@@ -1194,7 +1203,7 @@ with tab_war_room:
             st.divider()
 
         if not df_dip_watch.empty:
-            st.markdown(f"#### 👀 破底打底觀察（未金叉暫緩加碼）：🟡 破底打底觀察 ({len(df_dip_watch)})")
+            render_section_with_export(f"👀 破底打底觀察（未金叉暫緩加碼）：🟡 破底打底觀察 ({len(df_dip_watch)})", df_dip_watch, "破底觀察")
             ev_watch = st.dataframe(
                 style_dataframe(df_dip_watch.drop(columns=['股性類別'])), use_container_width=True,
                 on_select="rerun", selection_mode="single-row", key="war_watch",
@@ -1205,7 +1214,7 @@ with tab_war_room:
             st.divider()
 
         if not df_hold_core.empty:
-            st.markdown(f"#### 🏛️ 核心資產（免出場長期持有）：🔵 長期持有 ({len(df_hold_core)})")
+            render_section_with_export(f"🏛️ 核心資產（免出場長期持有）：🔵 長期持有 ({len(df_hold_core)})", df_hold_core, "核心資產")
             ev_core = st.dataframe(
                 style_dataframe(df_hold_core.drop(columns=['股性類別'])), use_container_width=True,
                 on_select="rerun", selection_mode="single-row", key="war_core",
@@ -1214,7 +1223,7 @@ with tab_war_room:
             if ev_core.selection.rows:
                 st.session_state.selected_ticker = df_hold_core.iloc[ev_core.selection.rows[0]]['代碼']
 
-        st.markdown(f"#### 第一步（找獵物）：💡 醞釀向上 ({len(df_up)})  [週線大底即將完成最高優先]")
+        render_section_with_export(f"第一步（找獵物）：💡 醞釀向上 ({len(df_up)})  [週線大底即將完成最高優先]", df_up, "醞釀向上")
         if df_up.empty:
             st.info("目前無『醞釀向上』標的。")
         else:
@@ -1226,7 +1235,7 @@ with tab_war_room:
             if ev_up.selection.rows:
                 st.session_state.selected_ticker = df_up.iloc[ev_up.selection.rows[0]]['代碼']
 
-        st.markdown(f"#### 第二步（扣板機）：🟢 只看走勢向上 ({len(df_trend_up)})")
+        render_section_with_export(f"第二步（扣板機）：🟢 只看走勢向上 ({len(df_trend_up)})", df_trend_up, "走勢向上")
         if df_trend_up.empty:
             st.info("目前無『走勢向上』標的。")
         else:
@@ -1241,7 +1250,7 @@ with tab_war_room:
         st.divider()
 
         if not df_bottom.empty:
-            st.markdown(f"#### 🛡️ 歷史低檔保護（切勿殺低 / 抱牢）：🟡 歷史低檔打底 ({len(df_bottom)})")
+            render_section_with_export(f"🛡️ 歷史低檔保護（切勿殺低 / 抱牢）：🟡 歷史低檔打底 ({len(df_bottom)})", df_bottom, "歷史打底")
             ev_bt = st.dataframe(
                 style_dataframe(df_bottom.drop(columns=['股性類別'])), use_container_width=True,
                 on_select="rerun", selection_mode="single-row", key="war_bt",
@@ -1251,7 +1260,7 @@ with tab_war_room:
                 st.session_state.selected_ticker = df_bottom.iloc[ev_bt.selection.rows[0]]['代碼']
 
         if not df_take_profit.empty:
-            st.markdown(f"#### 轉折防護（強彈先收獲利）：🟠 分批停利 ({len(df_take_profit)})")
+            render_section_with_export(f"轉折防護（強彈先收獲利）：🟠 分批停利 ({len(df_take_profit)})", df_take_profit, "分批停利")
             ev_tp = st.dataframe(
                 style_dataframe(df_take_profit.drop(columns=['股性類別'])), use_container_width=True,
                 on_select="rerun", selection_mode="single-row", key="war_tp",
@@ -1260,7 +1269,7 @@ with tab_war_room:
             if ev_tp.selection.rows:
                 st.session_state.selected_ticker = df_take_profit.iloc[ev_tp.selection.rows[0]]['代碼']
 
-        st.markdown(f"#### 第一步（提防見頂）：⚠️ 醞釀向下 ({len(df_down)})")
+        render_section_with_export(f"第一步（提防見頂）：⚠️ 醞釀向下 ({len(df_down)})", df_down, "醞釀向下")
         if df_down.empty:
             st.info("目前無『醞釀向下』標的。")
         else:
@@ -1273,7 +1282,7 @@ with tab_war_room:
                 st.session_state.selected_ticker = df_down.iloc[ev_down.selection.rows[0]]['代碼']
 
         if not df_trim.empty:
-            st.markdown(f"#### 第二步 A（動能型減碼防線）：🟠 建議減碼50% ({len(df_trim)})")
+            render_section_with_export(f"第二步 A（動能型減碼防線）：🟠 建議減碼50% ({len(df_trim)})", df_trim, "建議減碼")
             ev_trim = st.dataframe(
                 style_dataframe(df_trim.drop(columns=['股性類別'])), use_container_width=True,
                 on_select="rerun", selection_mode="single-row", key="war_trim",
@@ -1282,7 +1291,7 @@ with tab_war_room:
             if ev_trim.selection.rows:
                 st.session_state.selected_ticker = df_trim.iloc[ev_trim.selection.rows[0]]['代碼']
 
-        st.markdown(f"#### 第二步 B（紀律出場/出清）：🔴 只看賣出 ({len(df_sell)})")
+        render_section_with_export(f"第二步 B（紀律出場/出清）：🔴 只看賣出 ({len(df_sell)})", df_sell, "只看賣出")
         if df_sell.empty:
             st.info("目前無『賣出』標的。")
         else:
@@ -1294,10 +1303,8 @@ with tab_war_room:
             if ev_sell.selection.rows:
                 st.session_state.selected_ticker = df_sell.iloc[ev_sell.selection.rows[0]]['代碼']
 
-        st.markdown(f"#### 第三步（最後確認）：🟡 避免殺低 ({len(df_defense)})")
-        if df_defense.empty:
-            st.info("目前無『避免殺低』標的。")
-        else:
+        if not df_defense.empty:
+            render_section_with_export(f"第三步（最後確認）：🟡 避免殺低 ({len(df_defense)})", df_defense, "避免殺低")
             ev_hold = st.dataframe(
                 style_dataframe(df_defense.drop(columns=['股性類別'])), use_container_width=True, 
                 on_select="rerun", selection_mode="single-row", key="war_hold",
@@ -1307,7 +1314,7 @@ with tab_war_room:
                 st.session_state.selected_ticker = df_defense.iloc[ev_hold.selection.rows[0]]['代碼']
 
 # ==========================================
-# 分頁 5：🔬 深度分析 (含明日 5MA 翻揚扣抵試算)
+# 分頁 5：🔬 深度分析 (含明日 5MA 翻揚扣抵試算與右上角匯出)
 # ==========================================
 with tab_deep_dive:
     st.subheader("🔬 個股走勢深度分析")
@@ -1376,8 +1383,20 @@ with tab_deep_dive:
                 )
                 st.markdown("---")
 
-            st.markdown(f"#### 📋 {target_ticker} - {target_name} 逐日狀態明細表（{start_date.strftime('%Y/%m/%d')} ~ {end_date.strftime('%Y/%m/%d')}，共 {len(hist_signals_df)} 個交易日）")
-            
+            # 深度分析表格標題與右上角匯出按鈕
+            col_dh_title, col_dh_btn = st.columns([4, 1])
+            with col_dh_title:
+                st.markdown(f"#### 📋 {target_ticker} - {target_name} 逐日狀態明細表（{start_date.strftime('%Y/%m/%d')} ~ {end_date.strftime('%Y/%m/%d')}，共 {len(hist_signals_df)} 個交易日）")
+            with col_dh_btn:
+                deep_csv_bytes = hist_signals_df.to_csv(index=False).encode('utf-8-sig')
+                st.download_button(
+                    label="📥 匯出當日報表",
+                    data=deep_csv_bytes,
+                    file_name=f"深度分析_{target_ticker}_{target_name}_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}.csv",
+                    mime="text/csv",
+                    key="btn_exp_deep_table"
+                )
+
             st.dataframe(
                 style_dataframe(hist_signals_df),
                 use_container_width=True,
