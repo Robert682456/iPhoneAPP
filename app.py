@@ -163,12 +163,7 @@ def send_line_message(token, user_id, message_text):
     }
     payload = {
         "to": user_id.strip(),
-        "messages": [
-            {
-                "type": "text",
-                "text": message_text
-            }
-        ]
+        "messages": [{"type": "text", "text": message_text}]
     }
     try:
         res = requests.post(url, headers=headers, json=payload, timeout=8)
@@ -195,18 +190,16 @@ def save_notified_cache(cache):
     except Exception:
         pass
 
-# ==========================================
-# 定時早晚報產生器
-# ==========================================
 def build_morning_report(df_results, market_trend, group_name):
     today_str = datetime.now().strftime("%Y-%m-%d")
-    m_status = market_trend['status'] if market_trend else "未知"
+    m_status = market_trend['status'] if market_trend else "維持觀察"
     m_advice = market_trend['advice'] if market_trend else "無大盤資料"
 
-    up_stocks = df_results[df_results['建議'].str.contains("走勢向上|醞釀向上|破底分批加碼", na=False)]
+    up_stocks = df_results[df_results['建議'].str.contains("走勢向上|醞釀向上|破底分批加碼", na=False)] if not df_results.empty else pd.DataFrame()
     items_text = []
-    for _, row in up_stocks.head(6).iterrows():
-        items_text.append(f"• {row['代碼']} {row['名稱']}: {row['建議']}")
+    if not up_stocks.empty:
+        for _, row in up_stocks.head(6).iterrows():
+            items_text.append(f"• {row['代碼']} {row['名稱']}: {row['建議']}")
 
     stocks_summary = "\n".join(items_text) if items_text else "• 目前無多頭轉強標的，多看少做。"
 
@@ -228,16 +221,17 @@ def build_morning_report(df_results, market_trend, group_name):
 def build_evening_report(df_results, group_name):
     today_str = datetime.now().strftime("%Y-%m-%d")
     total_count = len(df_results)
-    up_cnt = len(df_results[df_results['建議'].str.contains("走勢向上", na=False)])
-    prep_up_cnt = len(df_results[df_results['建議'].str.contains("醞釀向上", na=False)])
-    dip_buy_cnt = len(df_results[df_results['建議'].str.contains("破底分批加碼", na=False)])
-    dip_watch_cnt = len(df_results[df_results['建議'].str.contains("破底打底觀察", na=False)])
-    sell_cnt = len(df_results[df_results['建議'].str.contains("賣出", na=False)])
+    up_cnt = len(df_results[df_results['建議'].str.contains("走勢向上", na=False)]) if not df_results.empty else 0
+    prep_up_cnt = len(df_results[df_results['建議'].str.contains("醞釀向上", na=False)]) if not df_results.empty else 0
+    dip_buy_cnt = len(df_results[df_results['建議'].str.contains("破底分批加碼", na=False)]) if not df_results.empty else 0
+    dip_watch_cnt = len(df_results[df_results['建議'].str.contains("破底打底觀察", na=False)]) if not df_results.empty else 0
+    sell_cnt = len(df_results[df_results['建議'].str.contains("賣出", na=False)]) if not df_results.empty else 0
 
     action_items = []
-    for _, row in df_results.iterrows():
-        if row['最新動態'] != "-":
-            action_items.append(f"• {row['代碼']} {row['名稱']}: {row['最新動態']} ({row['建議']})")
+    if not df_results.empty:
+        for _, row in df_results.iterrows():
+            if row['最新動態'] != "-":
+                action_items.append(f"• {row['代碼']} {row['名稱']}: {row['最新動態']} ({row['建議']})")
 
     action_text = "\n".join(action_items[:6]) if action_items else "• 今日無新增均線/MACD 交叉訊號。"
 
@@ -260,9 +254,6 @@ def build_evening_report(df_results, group_name):
     return msg
 
 def check_and_notify_signals(df_results, market_trend, group_name):
-    """
-    掃描全體自選股，處理即時翻多通知與定時早晚報
-    """
     token = st.session_state.line_token_input.strip()
     user_id = st.session_state.line_user_id_input.strip()
     if not token or not user_id:
@@ -274,7 +265,7 @@ def check_and_notify_signals(df_results, market_trend, group_name):
     now_time_str = now.strftime("%H:%M:%S")
 
     # 1. 處理即時翻多與金叉警報
-    if st.session_state.enable_line_notify_input:
+    if st.session_state.enable_line_notify_input and not df_results.empty:
         for _, row in df_results.iterrows():
             ticker = row['代碼']
             name = row['名稱']
@@ -327,17 +318,14 @@ def check_and_notify_signals(df_results, market_trend, group_name):
             cache[ticker] = item_cache
 
     # 2. 處理定時早晚報
-    if st.session_state.enable_daily_reports_input:
+    if st.session_state.enable_daily_reports_input and not df_results.empty:
         current_minute = now.hour * 60 + now.minute
-        
-        # 盤前早報 (08:45 ~ 08:55，即 525 ~ 535 分)
         if 525 <= current_minute <= 535 and cache.get("last_morning_report_date") != today_str:
             morning_msg = build_morning_report(df_results, market_trend, group_name)
             ok, _ = send_line_message(token, user_id, morning_msg)
             if ok:
                 cache["last_morning_report_date"] = today_str
 
-        # 盤後總結 (13:40 ~ 13:55，即 820 ~ 835 分)
         if 820 <= current_minute <= 835 and cache.get("last_evening_report_date") != today_str:
             evening_msg = build_evening_report(df_results, group_name)
             ok, _ = send_line_message(token, user_id, evening_msg)
@@ -358,133 +346,6 @@ hide_st_style = """
             </style>
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
-
-tab_dashboard, tab_rules, tab_settings, tab_war_room, tab_deep_dive = st.tabs([
-    "📊 看盤儀表板", "📖 策略判斷原則", "⚙️ 自選股編輯", "⚔️ 買賣戰情室", "🔬 深度分析"
-])
-display_df = pd.DataFrame()
-
-# ==========================================
-# 分頁 3：自選股與 LINE 即時通知設定 (含定時早晚報)
-# ==========================================
-with tab_settings:
-    st.subheader("⚙️ 編輯自選股清單（支援 3 組股票組合）")
-    st.markdown("請依照 `代碼,名稱` 的格式輸入，每行一檔標的。修改後會自動儲存並同步套用。")
-    
-    edit_tab1, edit_tab2, edit_tab3 = st.tabs(["📁 自選股 1 (標準預設)", "📁 自選股 2", "📁 自選股 3"])
-    
-    with edit_tab1:
-        u_input1 = st.text_area("📝 編輯自選股 1 清單：", st.session_state.watchlist_1_text, height=300, key="text_edit_1")
-        if u_input1 != st.session_state.watchlist_1_text:
-            st.session_state.watchlist_1_text = u_input1
-            save_settings()
-            
-    with edit_tab2:
-        u_input2 = st.text_area("📝 編輯自選股 2 清單：", st.session_state.watchlist_2_text, height=300, key="text_edit_2")
-        if u_input2 != st.session_state.watchlist_2_text:
-            st.session_state.watchlist_2_text = u_input2
-            save_settings()
-            
-    with edit_tab3:
-        u_input3 = st.text_area("📝 編輯自選股 3 清單：", st.session_state.watchlist_3_text, height=300, key="text_edit_3")
-        if u_input3 != st.session_state.watchlist_3_text:
-            st.session_state.watchlist_3_text = u_input3
-            save_settings()
-
-    st.divider()
-    st.subheader("🔔 LINE 即時通知與定時早晚報設定")
-    st.markdown("支援 **盤中即時訊號攔截**（破底加碼、MACD金叉）與 **定時早晚報**（08:45 盤前焦點、13:45 盤後覆盤）。")
-
-    col_l1, col_l2 = st.columns([1, 1])
-    with col_l1:
-        st.checkbox("啟用【盤中關鍵訊號即時推播】(破底加碼 / MACD金叉)", value=st.session_state.enable_line_notify_input, key="enable_line_notify_input", on_change=update_other_inputs)
-        st.checkbox("啟用【每日定時早晚報推播】(08:45早報 / 13:45晚報)", value=st.session_state.enable_daily_reports_input, key="enable_daily_reports_input", on_change=update_other_inputs)
-        line_token = st.text_input("Channel Access Token (Long-lived)：", type="password", value=st.session_state.line_token_input, key="line_token_input", on_change=update_other_inputs)
-        line_user_id = st.text_input("Your User ID (以 U 開頭的英數字)：", value=st.session_state.line_user_id_input, key="line_user_id_input", on_change=update_other_inputs)
-    
-    with col_l2:
-        st.markdown("#### 🧪 手動測試推播功能")
-        c_btn1, c_btn2, c_btn3 = st.columns(3)
-        with c_btn1:
-            if st.button("連線測試"):
-                if not line_token or not line_user_id:
-                    st.error("請先填入 Token 與 User ID！")
-                else:
-                    test_msg = f"🔔【雙指標系統】連線測試成功！當前時間：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}。"
-                    ok, res_text = send_line_message(line_token, line_user_id, test_msg)
-                    if ok: st.success("✅ 連線測試成功！")
-                    else: st.error(f"❌ 失敗：{res_text}")
-        with c_btn2:
-            if st.button("發送盤前早報"):
-                if not line_token or not line_user_id:
-                    st.error("請先填入 Token 與 User ID！")
-                elif display_df.empty:
-                    st.warning("請先回到看盤儀表板載入股票資料。")
-                else:
-                    m_trend = get_market_trend(st.session_state.market_ticker_input)
-                    m_msg = build_morning_report(display_df, m_trend, st.session_state.current_group_choice)
-                    ok, res_text = send_line_message(line_token, line_user_id, m_msg)
-                    if ok: st.success("✅ 早報推播成功！")
-                    else: st.error(f"❌ 失敗：{res_text}")
-        with c_btn3:
-            if st.button("發送盤後晚報"):
-                if not line_token or not line_user_id:
-                    st.error("請先填入 Token 與 User ID！")
-                elif display_df.empty:
-                    st.warning("請先回到看盤儀表板載入股票資料。")
-                else:
-                    e_msg = build_evening_report(display_df, st.session_state.current_group_choice)
-                    ok, res_text = send_line_message(line_token, line_user_id, e_msg)
-                    if ok: st.success("✅ 晚報推播成功！")
-                    else: st.error(f"❌ 失敗：{res_text}")
-
-if st.session_state.current_group_choice == "自選股 2":
-    ACTIVE_WATCHLIST = parse_watchlist(st.session_state.watchlist_2_text)
-elif st.session_state.current_group_choice == "自選股 3":
-    ACTIVE_WATCHLIST = parse_watchlist(st.session_state.watchlist_3_text)
-else:
-    ACTIVE_WATCHLIST = parse_watchlist(st.session_state.watchlist_1_text)
-
-# ==========================================
-# 分頁 2：策略判斷原則
-# ==========================================
-with tab_rules:
-    st.header("📖 雙指標波段系統 - 策略判斷原則與決策流程邏輯")
-    st.markdown("""
-    本系統採用**「長線保護短線」**的全方位跨週期綜合評估。**每檔股票只產出一個綜合最佳決策解**，線圖週期切換僅影響圖表顯示，不干擾決策信號。
-    
-    ---
-    
-    ### 🧭 戰情室決策流程邏輯層次（由上而下執行原則）
-    
-    #### 1️⃣ 第一梯隊：左側極限防護區（最高優先攔截）
-    * **🎯 破底加碼雷達：`🟢 破底分批加碼` (方案 A 嚴格確認型)**
-        * **觸發條件**：股價跌破近 1 年低點或處於年度極限低檔（≤ 10%），且**收盤價實質站上日 5MA**，同時**日 MACD 金叉 (柱狀 > 0) 或 5MA 金叉 10MA**。
-        * **實戰動作**：確認空方動能耗盡且短線翻多，啟動左側金字塔分批攤平布局，**全面壓制任何賣出訊號**。
-    * **👀 破底打底觀察：`🟡 破底打底觀察`**
-        * **觸發條件**：已實質破底或位階極低，但日線 MA/MACD 尚未金叉轉強。
-        * **實戰動作**：**嚴禁盲目提早進場接刀**，耐心等待日線指標正式翻多，保留現金銀彈。
-
-    #### 2️⃣ 第二梯隊：資產配置核心（免出場長期持有）
-    * **🏛️ 核心資產：`🔵 長期持有`**
-        * **納入名單**：超短天期美債（SGOV、BIL 等）與大盤核心原型 ETF（0050、VOO、QQQM 等）。
-        * **實戰動作**：隨經濟長期成長滾動複利或穩定領息，**完全免疫所有短期技術面出場信號**。
-
-    #### 3️⃣ 第三梯隊：右側常規多頭波段（標準進場兩步曲）
-    * **第一步（找獵物）：`💡 醞釀向上`**
-        * **優先準則**：以**「週線大底即將完成」**為核心。
-        * **🛡️ 防假突破機制**：若**週線仍處於 MACD 死叉**空頭架構下，日線必須滿足**「連續 2 天收盤站穩 20MA」**才准觸發 `🌟 醞釀向上 (週大底+日發動)`。
-    * **第二步（扣板機）：`🟢 走勢向上`**
-        * **觸發條件**：週線 MACD>0 且 5W>10W；日線 MACD>0 且 5MA>10MA，且當日成交量 > 5 日均量。
-
-    #### 4️⃣ 第四梯隊：轉折防守與紀律出場管控
-    * **`🛡️ 歷史低檔打底 (抱牢)`**：近 1 年位階 ≤ 25%，基期極低且非破底，指標死叉具滯後性，建議耐心抱牢。
-    * **`🟠 分批停利 (強彈中)`**：高動能標的雖週線死叉，但當日強漲 ≥ 4%，先獲利了結 30%~50%，其餘以日 5MA 防守。
-    * **`⚠️ 醞釀向下`**：週線 DIF 下降前提下，日 MACD 紅柱縮減且跌破 5MA，或 RSI ≥ 70。
-    * **`🟠 建議減碼 50%`**：高動能標的週 5W 跌破 10W，先行減碼鎖利。
-    * **`🔴 只看賣出`**：高動能型週 MACD 正式死叉出清；穩健型週 DIF 下降且日線雙指標翻空敏捷防守全出。
-    * **`🟡 避免殺低`**：已滿足賣出條件但跌破布林下軌（LCL）或 RSI ≤ 30，暫緩賣出等待反彈。
-    """)
 
 # ==========================================
 # 核心決策判斷引擎
@@ -793,6 +654,23 @@ def analyze_signals_comprehensive(watchlist):
         df_results = df_results.sort_values(by=['SortRank', '代碼']).drop(columns=['SortRank']).reset_index(drop=True)
         
     return df_results
+
+# ==========================================
+# 🎯 全域即時資料運算 (全域快取，確保所有分頁與按鈕隨時可用)
+# ==========================================
+if st.session_state.current_group_choice == "自選股 2":
+    ACTIVE_WATCHLIST = parse_watchlist(st.session_state.watchlist_2_text)
+elif st.session_state.current_group_choice == "自選股 3":
+    ACTIVE_WATCHLIST = parse_watchlist(st.session_state.watchlist_3_text)
+else:
+    ACTIVE_WATCHLIST = parse_watchlist(st.session_state.watchlist_1_text)
+
+# 在分頁渲染前先執行運算與推播檢查
+display_df = analyze_signals_comprehensive(ACTIVE_WATCHLIST)
+market_trend_global = get_market_trend(st.session_state.market_ticker_input)
+
+# 背景自動檢查訊號與定時早晚報
+check_and_notify_signals(display_df, market_trend_global, st.session_state.current_group_choice)
 
 # ==========================================
 # 歷史逐日狀態回溯引擎
@@ -1143,6 +1021,123 @@ def get_chart_data(ticker, interval, period):
     return df
 
 # ==========================================
+# 介面分頁架構
+# ==========================================
+tab_dashboard, tab_rules, tab_settings, tab_war_room, tab_deep_dive = st.tabs([
+    "📊 看盤儀表板", "📖 策略判斷原則", "⚙️ 自選股編輯", "⚔️ 買賣戰情室", "🔬 深度分析"
+])
+
+# ==========================================
+# 分頁 3：自選股與 LINE 即時通知設定 (含定時早晚報)
+# ==========================================
+with tab_settings:
+    st.subheader("⚙️ 編輯自選股清單（支援 3 組股票組合）")
+    st.markdown("請依照 `代碼,名稱` 的格式輸入，每行一檔標的。修改後會自動儲存並同步套用。")
+    
+    edit_tab1, edit_tab2, edit_tab3 = st.tabs(["📁 自選股 1 (標準預設)", "📁 自選股 2", "📁 自選股 3"])
+    
+    with edit_tab1:
+        u_input1 = st.text_area("📝 編輯自選股 1 清單：", st.session_state.watchlist_1_text, height=300, key="text_edit_1")
+        if u_input1 != st.session_state.watchlist_1_text:
+            st.session_state.watchlist_1_text = u_input1
+            save_settings()
+            
+    with edit_tab2:
+        u_input2 = st.text_area("📝 編輯自選股 2 清單：", st.session_state.watchlist_2_text, height=300, key="text_edit_2")
+        if u_input2 != st.session_state.watchlist_2_text:
+            st.session_state.watchlist_2_text = u_input2
+            save_settings()
+            
+    with edit_tab3:
+        u_input3 = st.text_area("📝 編輯自選股 3 清單：", st.session_state.watchlist_3_text, height=300, key="text_edit_3")
+        if u_input3 != st.session_state.watchlist_3_text:
+            st.session_state.watchlist_3_text = u_input3
+            save_settings()
+
+    st.divider()
+    st.subheader("🔔 LINE 即時通知與定時早晚報設定")
+    st.markdown("支援 **盤中即時訊號攔截**（破底加碼、MACD金叉）與 **定時早晚報**（08:45 盤前焦點、13:45 盤後覆盤）。")
+
+    col_l1, col_l2 = st.columns([1, 1])
+    with col_l1:
+        st.checkbox("啟用【盤中關鍵訊號即時推播】(破底加碼 / MACD金叉)", value=st.session_state.enable_line_notify_input, key="enable_line_notify_input", on_change=update_other_inputs)
+        st.checkbox("啟用【每日定時早晚報推播】(08:45早報 / 13:45晚報)", value=st.session_state.enable_daily_reports_input, key="enable_daily_reports_input", on_change=update_other_inputs)
+        line_token = st.text_input("Channel Access Token (Long-lived)：", type="password", value=st.session_state.line_token_input, key="line_token_input", on_change=update_other_inputs)
+        line_user_id = st.text_input("Your User ID (以 U 開頭的英數字)：", value=st.session_state.line_user_id_input, key="line_user_id_input", on_change=update_other_inputs)
+    
+    with col_l2:
+        st.markdown("#### 🧪 手動測試推播功能")
+        c_btn1, c_btn2, c_btn3 = st.columns(3)
+        with c_btn1:
+            if st.button("連線測試"):
+                if not line_token or not line_user_id:
+                    st.error("請先填入 Token 與 User ID！")
+                else:
+                    test_msg = f"🔔【雙指標系統】連線測試成功！當前時間：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}。"
+                    ok, res_text = send_line_message(line_token, line_user_id, test_msg)
+                    if ok: st.success("✅ 連線測試成功！")
+                    else: st.error(f"❌ 失敗：{res_text}")
+        with c_btn2:
+            if st.button("發送盤前早報"):
+                if not line_token or not line_user_id:
+                    st.error("請先填入 Token 與 User ID！")
+                else:
+                    m_msg = build_morning_report(display_df, market_trend_global, st.session_state.current_group_choice)
+                    ok, res_text = send_line_message(line_token, line_user_id, m_msg)
+                    if ok: st.success("✅ 早報推播成功！")
+                    else: st.error(f"❌ 失敗：{res_text}")
+        with c_btn3:
+            if st.button("發送盤後晚報"):
+                if not line_token or not line_user_id:
+                    st.error("請先填入 Token 與 User ID！")
+                else:
+                    e_msg = build_evening_report(display_df, st.session_state.current_group_choice)
+                    ok, res_text = send_line_message(line_token, line_user_id, e_msg)
+                    if ok: st.success("✅ 晚報推播成功！")
+                    else: st.error(f"❌ 失敗：{res_text}")
+
+# ==========================================
+# 分頁 2：策略判斷原則
+# ==========================================
+with tab_rules:
+    st.header("📖 雙指標波段系統 - 策略判斷原則與決策流程邏輯")
+    st.markdown("""
+    本系統採用**「長線保護短線」**的全方位跨週期綜合評估。**每檔股票只產出一個綜合最佳決策解**，線圖週期切換僅影響圖表顯示，不干擾決策信號。
+    
+    ---
+    
+    ### 🧭 戰情室決策流程邏輯層次（由上而下執行原則）
+    
+    #### 1️⃣ 第一梯隊：左側極限防護區（最高優先攔截）
+    * **🎯 破底加碼雷達：`🟢 破底分批加碼` (方案 A 嚴格確認型)**
+        * **觸發條件**：股價跌破近 1 年低點或處於年度極限低檔（≤ 10%），且**收盤價實質站上日 5MA**，同時**日 MACD 金叉 (柱狀 > 0) 或 5MA 金叉 10MA**。
+        * **實戰動作**：確認空方動能耗盡且短線翻多，啟動左側金字塔分批攤平布局，**全面壓制任何賣出訊號**。
+    * **👀 破底打底觀察：`🟡 破底打底觀察`**
+        * **觸發條件**：已實質破底或位階極低，但日線 MA/MACD 尚未金叉轉強。
+        * **實戰動作**：**嚴禁盲目提早進場接刀**，耐心等待日線指標正式翻多，保留現金銀彈。
+
+    #### 2️⃣ 第二梯隊：資產配置核心（免出場長期持有）
+    * **🏛️ 核心資產：`🔵 長期持有`**
+        * **納入名單**：超短天期美債（SGOV、BIL 等）與大盤核心原型 ETF（0050、VOO、QQQM 等）。
+        * **實戰動作**：隨經濟長期成長滾動複利或穩定領息，**完全免疫所有短期技術面出場信號**。
+
+    #### 3️⃣ 第三梯隊：右側常規多頭波段（標準進場兩步曲）
+    * **第一步（找獵物）：`💡 醞釀向上`**
+        * **優先準則**：以**「週線大底即將完成」**為核心。
+        * **🛡️ 防假突破機制**：若**週線仍處於 MACD 死叉**空頭架構下，日線必須滿足**「連續 2 天收盤站穩 20MA」**才准觸發 `🌟 醞釀向上 (週大底+日發動)`。
+    * **第二步（扣板機）：`🟢 走勢向上`**
+        * **觸發條件**：週線 MACD>0 且 5W>10W；日線 MACD>0 且 5MA>10MA，且當日成交量 > 5 日均量。
+
+    #### 4️⃣ 第四梯隊：轉折防守與紀律出場管控
+    * **`🛡️ 歷史低檔打底 (抱牢)`**：近 1 年位階 ≤ 25%，基期極低且非破底，指標死叉具滯後性，建議耐心抱牢。
+    * **`🟠 分批停利 (強彈中)`**：高動能標的雖週線死叉，但當日強漲 ≥ 4%，先獲利了結 30%~50%，其餘以日 5MA 防守。
+    * **`⚠️ 醞釀向下`**：週線 DIF 下降前提下，日 MACD 紅柱縮減且跌破 5MA，或 RSI ≥ 70。
+    * **`🟠 建議減碼 50%`**：高動能標的週 5W 跌破 10W，先行減碼鎖利。
+    * **`🔴 只看賣出`**：高動能型週 MACD 正式死叉出清；穩健型週 DIF 下降且日線雙指標翻空敏捷防守全出。
+    * **`🟡 避免殺低`**：已滿足賣出條件但跌破布林下軌（LCL）或 RSI ≤ 30，暫緩賣出等待反彈。
+    """)
+
+# ==========================================
 # 分頁 1：主看盤儀表板 
 # ==========================================
 with tab_dashboard:
@@ -1160,20 +1155,18 @@ with tab_dashboard:
             st.rerun()
 
     market_ticker = st.text_input("📊 設定總體資金水位參考標的 (預設 0050.TW)：", key="market_ticker_input", on_change=update_other_inputs).strip().upper()
-    with st.spinner(f"運算 {market_ticker} 總體指標中..."):
-        market_trend = get_market_trend(market_ticker)
-        if market_trend:
-            st.markdown(
-                f'''
-                <div style="background-color: {market_trend['color']}; padding: 15px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #ccc;">
-                    <h4 style="margin: 0; color: #333;">🧭 總體資金水位儀表板 ({market_ticker})</h4>
-                    <p style="margin: 5px 0 0 0; font-size: 18px; font-weight: bold; color: #333;">狀態：{market_trend['status']}</p>
-                    <p style="margin: 5px 0 0 0; color: #555;">💡 建議：{market_trend['advice']}</p>
-                </div>
-                ''', unsafe_allow_html=True
-            )
-        else:
-            st.warning(f"⚠️ 無法取得 {market_ticker} 的資料，請確認代碼是否正確。")
+    if market_trend_global:
+        st.markdown(
+            f'''
+            <div style="background-color: {market_trend_global['color']}; padding: 15px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #ccc;">
+                <h4 style="margin: 0; color: #333;">🧭 總體資金水位儀表板 ({market_ticker})</h4>
+                <p style="margin: 5px 0 0 0; font-size: 18px; font-weight: bold; color: #333;">狀態：{market_trend_global['status']}</p>
+                <p style="margin: 5px 0 0 0; color: #555;">💡 建議：{market_trend_global['advice']}</p>
+            </div>
+            ''', unsafe_allow_html=True
+        )
+    else:
+        st.warning(f"⚠️ 無法取得 {market_ticker} 的資料，請確認代碼是否正確。")
 
     st.divider()
     st.subheader("🔍 臨時標的快速分析")
@@ -1212,11 +1205,6 @@ with tab_dashboard:
         else:
             st.error("無法取得該代碼資料，請確認代碼是否正確。")
     st.divider()
-    
-    with st.spinner(f"正在綜合運算【{st.session_state.current_group_choice}】所有標的..."):
-        display_df = analyze_signals_comprehensive(ACTIVE_WATCHLIST)
-        # 背景比對狀態並執行即時訊號推播與定時早晚報
-        check_and_notify_signals(display_df, market_trend, st.session_state.current_group_choice)
 
     if not display_df.empty:
         st.subheader(f"📊 【{st.session_state.current_group_choice}】狀態總覽 (長短線綜合唯一解 - 共 {len(display_df)} 檔)")
