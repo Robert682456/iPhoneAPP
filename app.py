@@ -6,6 +6,7 @@ from plotly.subplots import make_subplots
 from streamlit_autorefresh import st_autorefresh
 import json
 import os
+from datetime import datetime, timedelta
 
 st.set_page_config(page_title="雙指標波段系統", page_icon="📈", layout="wide")
 
@@ -146,7 +147,10 @@ hide_st_style = """
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
-tab_dashboard, tab_rules, tab_settings, tab_war_room = st.tabs(["📊 看盤儀表板", "📖 策略判斷原則", "⚙️ 自選股編輯", "⚔️ 買賣戰情室"])
+# 建立 5 個分頁 (在紅框處加入「🔬 深度分析」分頁)
+tab_dashboard, tab_rules, tab_settings, tab_war_room, tab_deep_dive = st.tabs([
+    "📊 看盤儀表板", "📖 策略判斷原則", "⚙️ 自選股編輯", "⚔️ 買賣戰情室", "🔬 深度分析"
+])
 display_df = pd.DataFrame()
 
 # ==========================================
@@ -184,7 +188,7 @@ else:
     ACTIVE_WATCHLIST = parse_watchlist(st.session_state.watchlist_1_text)
 
 # ==========================================
-# 分頁 2：策略判斷原則 (整合完整決策流程邏輯層次)
+# 分頁 2：策略判斷原則
 # ==========================================
 with tab_rules:
     st.header("📖 雙指標波段系統 - 策略判斷原則與決策流程邏輯")
@@ -215,9 +219,9 @@ with tab_rules:
     * **第一步（找獵物）：`💡 醞釀向上`**
         * **優先準則**：以**「週線大底即將完成」**為核心（週 MACD 綠柱收斂站上 5W 均線或週 RSI 低檔脫離）。若日線同步站上 5MA 翻多，則升級標記為 `🌟 醞釀向上 (週大底+日發動)`。
         * **實戰動作**：列入每日重點買進追蹤清單，等待帶量共振。
-    * **第二步（扣板機）：`🟢 只看買入`**
+    * **第二步（扣板機）：`🟢 走勢向上`**
         * **觸發條件**：週線 MACD>0 且 5W>10W；日線 MACD>0 且 5MA>10MA，且當日成交量 > 5 日均量。
-        * **實戰動作**：長短線共振帶量確認，正式進場建立波段多頭部位。
+        * **實戰動作**：長短線共振帶量確認多頭走勢，正式建立波段多頭部位。
 
     #### 4️⃣ 第四梯隊：轉折防守與紀律出場管控
     * **`🛡️ 歷史低檔打底 (抱牢)`**：近 1 年位階 ≤ 25%，基期極低且非破底，指標死叉具滯後性，低接者切勿殺在阿呆谷，建議耐心抱牢。
@@ -344,7 +348,6 @@ def analyze_signals_comprehensive(watchlist):
             curr_hist_d, prev_hist_d = hist_d.iloc[-1], hist_d.iloc[-2]
             curr_vol_d, curr_vol_ma5_d = volume_d.iloc[-1], vol_ma5_d.iloc[-1]
 
-            # 方案 A 嚴格止跌確認
             is_daily_golden_cross = (curr_hist_d > 0) or (curr_ma5_d > curr_ma10_d)
             is_above_ma5 = (curr_close > curr_ma5_d)
             is_daily_stopping_drop = is_above_ma5 and is_daily_golden_cross
@@ -397,7 +400,7 @@ def analyze_signals_comprehensive(watchlist):
             is_daily_launching = (curr_close > curr_ma5_d) and (curr_hist_d > prev_hist_d)
 
             # ==========================================
-            # 綜合唯一建議判定
+            # 綜合唯一建議判定 (🟢 走勢向上 取代 買入)
             # ==========================================
             if is_buy_and_hold:
                 rec_text = "🔵 長期持有 (核心被動)"
@@ -420,8 +423,8 @@ def analyze_signals_comprehensive(watchlist):
                         rec_text = "🟡 觀察"
                         detail_reason = "【短多長空】日線翻多帶量，但週線長線格局尚未同步，暫作觀察。"
                     else:
-                        rec_text = "🟢 買入"
-                        detail_reason = "【長短線共振帶量】週線維持長多，日線雙指標翻多且成交量超越5日均量！"
+                        rec_text = "🟢 走勢向上"
+                        detail_reason = "【長短線共振帶量】週線維持長多，日線雙指標翻多且成交量超越5日均量，確立波段走勢向上！"
                 
                 elif target_pos_d == 0:
                     if curr_rsi_d <= 30 or curr_close <= curr_lcl_d:
@@ -506,7 +509,7 @@ def analyze_signals_comprehensive(watchlist):
     if not df_results.empty:
         def get_sort_rank(row):
             if "破底分批加碼" in row['建議']: return 1
-            elif "買入" in row['建議']: return 2  
+            elif "走勢向上" in row['建議']: return 2  
             elif "週大底+日發動" in row['建議']: return 3
             elif "週大底打底" in row['建議']: return 4
             elif "長期持有" in row['建議']: return 5
@@ -540,6 +543,7 @@ def style_dataframe(df):
     def color_rec(val):
         if isinstance(val, str):
             if '破底分批加碼' in val: return 'color: #1b5e20; font-weight: bold; background-color: #c8e6c9;'
+            elif '走勢向上' in val: return 'color: #2e7d32; font-weight: bold; background-color: #e8f5e9;'
             elif '破底打底觀察' in val: return 'color: #b78103; font-weight: bold; background-color: #fff9c4;'
             elif '長期持有' in val: return 'color: #0d47a1; font-weight: bold; background-color: #e3f2fd;'
             elif '分批停利' in val: return 'color: #e65100; font-weight: bold; background-color: #fff3e0;'
@@ -671,7 +675,7 @@ with tab_dashboard:
         
         filter_opt = st.radio(
             "🔍 狀態篩選：", 
-            ["👀 顯示全部", "🟢 破底加碼", "🟡 破底觀察", "🟢 只看買入", "💡 醞釀向上", "🔵 長期持有", "🟡 歷史打底", "🟠 分批停利", "⚠️ 醞釀向下", "🟠 建議減碼", "🟡 避免殺低", "🔴 只看賣出", "⚡ 剛發生交叉"], 
+            ["👀 顯示全部", "🟢 破底加碼", "🟡 破底觀察", "🟢 只看走勢向上", "💡 醞釀向上", "🔵 長期持有", "🟡 歷史打底", "🟠 分批停利", "⚠️ 醞釀向下", "🟠 建議減碼", "🟡 避免殺低", "🔴 只看賣出", "⚡ 剛發生交叉"], 
             index=0,
             horizontal=True
         )
@@ -681,8 +685,8 @@ with tab_dashboard:
             filtered_df = filtered_df[filtered_df['建議'].str.contains("破底分批加碼", na=False)]
         elif filter_opt == "🟡 破底觀察":
             filtered_df = filtered_df[filtered_df['建議'].str.contains("破底打底觀察", na=False)]
-        elif filter_opt == "🟢 只看買入":
-            filtered_df = filtered_df[filtered_df['建議'].str.contains("買入", na=False)]
+        elif filter_opt == "🟢 只看走勢向上":
+            filtered_df = filtered_df[filtered_df['建議'].str.contains("走勢向上", na=False)]
         elif filter_opt == "💡 醞釀向上":
             filtered_df = filtered_df[filtered_df['建議'].str.contains("醞釀向上", na=False)]
         elif filter_opt == "🔵 長期持有":
@@ -862,7 +866,7 @@ with tab_dashboard:
                 st.warning("⚠️ 無法取得該標的的 K 線圖資料，請確認代碼是否正確。")
 
 # ==========================================
-# 分頁 4：買賣戰情室 (依四大梯隊邏輯分流)
+# 分頁 4：買賣戰情室
 # ==========================================
 with tab_war_room:
     st.subheader(f"⚔️ 買賣戰情室【{st.session_state.current_group_choice}】 (長短線雙週期綜合唯一解)")
@@ -873,7 +877,7 @@ with tab_war_room:
         df_dip_buy = display_df[display_df['建議'].str.contains("破底分批加碼", na=False)].reset_index(drop=True)
         df_dip_watch = display_df[display_df['建議'].str.contains("破底打底觀察", na=False)].reset_index(drop=True)
         df_up = display_df[display_df['建議'].str.contains("醞釀向上", na=False)].reset_index(drop=True)
-        df_buy = display_df[display_df['建議'].str.contains("買入", na=False)].reset_index(drop=True)
+        df_trend_up = display_df[display_df['建議'].str.contains("走勢向上", na=False)].reset_index(drop=True)
         
         df_hold_core = display_df[display_df['建議'].str.contains("長期持有", na=False)].reset_index(drop=True)
         df_bottom = display_df[display_df['建議'].str.contains("歷史低檔打底", na=False)].reset_index(drop=True)
@@ -930,17 +934,17 @@ with tab_war_room:
             if ev_up.selection.rows:
                 st.session_state.selected_ticker = df_up.iloc[ev_up.selection.rows[0]]['代碼']
 
-        st.markdown(f"#### 第二步（扣板機）：🟢 只看買入 ({len(df_buy)})")
-        if df_buy.empty:
-            st.info("目前無『買入』標的。")
+        st.markdown(f"#### 第二步（扣板機）：🟢 只看走勢向上 ({len(df_trend_up)})")
+        if df_trend_up.empty:
+            st.info("目前無『走勢向上』標的。")
         else:
             ev_buy = st.dataframe(
-                style_dataframe(df_buy.drop(columns=['股性類別'])), use_container_width=True, 
+                style_dataframe(df_trend_up.drop(columns=['股性類別'])), use_container_width=True, 
                 on_select="rerun", selection_mode="single-row", key="war_buy",
                 column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
             )
             if ev_buy.selection.rows:
-                st.session_state.selected_ticker = df_buy.iloc[ev_buy.selection.rows[0]]['代碼']
+                st.session_state.selected_ticker = df_trend_up.iloc[ev_buy.selection.rows[0]]['代碼']
                 
         st.divider()
 
@@ -1010,6 +1014,149 @@ with tab_war_room:
             )
             if ev_hold.selection.rows:
                 st.session_state.selected_ticker = df_defense.iloc[ev_hold.selection.rows[0]]['代碼']
+
+# ==========================================
+# 分頁 5：🔬 深度分析 (指定時間區間與自選股檢視)
+# ==========================================
+with tab_deep_dive:
+    st.subheader("🔬 個股走勢深度分析")
+    st.markdown("從當前自選股中挑選標的，並自由設定自訂時間區間（預設往前回溯 2 個星期），深入觀察短期結構變化與量價關係。")
+
+    # 1. 標的與時間區間選擇器
+    col_stock, col_start, col_end = st.columns([2, 2, 2])
+    
+    deep_options_dict = ACTIVE_WATCHLIST.copy()
+    if temp_ticker and temp_ticker not in deep_options_dict:
+        disp_name = temp_name if temp_name else temp_ticker
+        deep_options_dict[temp_ticker] = disp_name
+    
+    deep_options = [f"{k} - {v}" for k, v in deep_options_dict.items()]
+
+    with col_stock:
+        default_deep_idx = 0
+        if st.session_state.selected_ticker:
+            for i, opt in enumerate(deep_options):
+                if opt.startswith(st.session_state.selected_ticker):
+                    default_deep_idx = i
+                    break
+        selected_deep_opt = st.selectbox("📌 選擇要分析的標的：", deep_options, index=default_deep_idx, key="deep_stock_select")
+        target_ticker = selected_deep_opt.split(" - ")[0] if selected_deep_opt else None
+
+    # 預設為往前 2 個星期 (14 天)
+    today = datetime.now().date()
+    two_weeks_ago = today - timedelta(days=14)
+
+    with col_start:
+        start_date = st.date_input("📅 起始時間 (預設往前 2 週)：", value=two_weeks_ago, key="deep_start_date")
+    with col_end:
+        end_date = st.date_input("📅 結束時間：", value=today, key="deep_end_date")
+
+    if start_date >= end_date:
+        st.error("⚠️ 起始時間必須早於結束時間，請重新選擇日期區間。")
+    elif target_ticker:
+        with st.spinner(f"正在抓取 {target_ticker} 深度分析數據..."):
+            # 抓取較長區間以便準確計算 20MA 與 MACD，再以自訂區間切片
+            fetch_start = start_date - timedelta(days=60)
+            fetch_end = end_date + timedelta(days=1)
+            raw_df = yf.download(target_ticker, start=fetch_start.strftime('%Y-%m-%d'), end=fetch_end.strftime('%Y-%m-%d'), interval="1d", progress=False)
+
+        if raw_df.empty or len(raw_df) < 5:
+            st.warning(f"⚠️ 無法取得 {target_ticker} 在該區間的歷史數據，請確認代碼或擴大時間範圍。")
+        else:
+            if isinstance(raw_df.columns, pd.MultiIndex):
+                raw_df.columns = raw_df.columns.get_level_values(0)
+            raw_df = raw_df.dropna()
+
+            # 計算均線與指標
+            raw_df['MA5'] = raw_df['Close'].rolling(5).mean()
+            raw_df['MA10'] = raw_df['Close'].rolling(10).mean()
+            raw_df['MA20'] = raw_df['Close'].rolling(20).mean()
+            raw_df['Vol_MA5'] = raw_df['Volume'].rolling(5).mean()
+
+            raw_df['STD20'] = raw_df['Close'].rolling(20).std()
+            raw_df['UCL'] = raw_df['MA20'] + 2 * raw_df['STD20']
+            raw_df['LCL'] = raw_df['MA20'] - 2 * raw_df['STD20']
+
+            raw_df['DIF'] = raw_df['Close'].ewm(span=12, adjust=False).mean() - raw_df['Close'].ewm(span=26, adjust=False).mean()
+            raw_df['DEA'] = raw_df['DIF'].ewm(span=9, adjust=False).mean()
+            raw_df['MACD_Hist'] = raw_df['DIF'] - raw_df['DEA']
+            raw_df['MACD_Color'] = ['#ef5350' if val > 0 else '#26a69a' for val in raw_df['MACD_Hist']]
+
+            delta_raw = raw_df['Close'].diff()
+            gain_raw = delta_raw.clip(lower=0).ewm(com=13, adjust=False).mean()
+            loss_raw = (-1 * delta_raw.clip(upper=0)).ewm(com=13, adjust=False).mean()
+            raw_df['RSI'] = 100 - (100 / (1 + (gain_raw / loss_raw)))
+
+            raw_df['Candle_Dir'] = raw_df['Close'] >= raw_df['Open']
+            raw_df['Vol_Color'] = ['#ef5350' if d else '#26a69a' for d in raw_df['Candle_Dir']]
+
+            # 切片出使用者指定的觀察區間
+            target_mask = (raw_df.index.date >= start_date) & (raw_df.index.date <= end_date)
+            slice_df = raw_df.loc[target_mask]
+
+            if slice_df.empty:
+                st.warning("⚠️ 所選時間區間內未包含任何開盤交易日，請向外微調日期。")
+            else:
+                # 2. 關鍵量化摘要指標
+                p_first = slice_df['Close'].iloc[0]
+                p_last = slice_df['Close'].iloc[-1]
+                cum_ret = ((p_last - p_first) / p_first) * 100
+                period_high = slice_df['High'].max()
+                period_low = slice_df['Low'].min()
+                avg_vol = slice_df['Volume'].mean()
+
+                st.markdown("---")
+                m_c1, m_c2, m_c3, m_c4 = st.columns(4)
+                m_c1.metric("區間累計漲跌幅", f"{cum_ret:+.2f}%", f"{p_last - p_first:+.2f}")
+                m_c2.metric("區間最高價", f"{period_high:.2f}")
+                m_c3.metric("區間最低價", f"{period_low:.2f}")
+                m_c4.metric("區間日均成交量", f"{int(avg_vol):,}")
+
+                # 3. 繪製深度分析圖表
+                fig_deep = make_subplots(rows=3, cols=1, shared_xaxes=True,
+                                         vertical_spacing=0.03, row_heights=[0.5, 0.25, 0.25])
+
+                # 主圖 K 線與均線
+                fig_deep.add_trace(go.Candlestick(
+                    x=slice_df.index, open=slice_df['Open'], high=slice_df['High'],
+                    low=slice_df['Low'], close=slice_df['Close'],
+                    name='日K線', increasing_line_color='#ef5350', decreasing_line_color='#26a69a'
+                ), row=1, col=1)
+
+                fig_deep.add_trace(go.Scatter(x=slice_df.index, y=slice_df['MA5'], line=dict(color='orange', width=1.5), name='5MA'), row=1, col=1)
+                fig_deep.add_trace(go.Scatter(x=slice_df.index, y=slice_df['MA10'], line=dict(color='blue', width=1.5), name='10MA'), row=1, col=1)
+                fig_deep.add_trace(go.Scatter(x=slice_df.index, y=slice_df['MA20'], line=dict(color='gray', dash='dot', width=1.5), name='20MA'), row=1, col=1)
+
+                # 成交量
+                fig_deep.add_trace(go.Bar(x=slice_df.index, y=slice_df['Volume'], marker_color=slice_df['Vol_Color'], name='成交量'), row=2, col=1)
+                fig_deep.add_trace(go.Scatter(x=slice_df.index, y=slice_df['Vol_MA5'], line=dict(color='orange', width=1), name='5均量'), row=2, col=1)
+
+                # MACD 柱狀與雙線
+                fig_deep.add_trace(go.Bar(x=slice_df.index, y=slice_df['MACD_Hist'], marker_color=slice_df['MACD_Color'], name='MACD柱'), row=3, col=1)
+                fig_deep.add_trace(go.Scatter(x=slice_df.index, y=slice_df['DIF'], line=dict(color='orange', width=1.5), name='DIF'), row=3, col=1)
+                fig_deep.add_trace(go.Scatter(x=slice_df.index, y=slice_df['DEA'], line=dict(color='blue', width=1.5), name='DEA'), row=3, col=1)
+
+                # 過濾非交易日空白間隙
+                dt_slice_dates = slice_df.index.strftime('%Y-%m-%d').tolist()
+                dt_full_range = pd.date_range(start=slice_df.index[0], end=slice_df.index[-1])
+                dt_deep_breaks = [d.strftime('%Y-%m-%d') for d in dt_full_range if d.strftime('%Y-%m-%d') not in dt_slice_dates]
+
+                fig_deep.update_xaxes(rangebreaks=[dict(values=dt_deep_breaks)])
+                fig_deep.update_layout(
+                    height=700,
+                    margin=dict(l=10, r=10, t=20, b=50),
+                    xaxis_rangeslider_visible=False,
+                    legend=dict(orientation="h", yanchor="top", y=-0.08, xanchor="center", x=0.5),
+                    hovermode="x unified"
+                )
+
+                st.plotly_chart(fig_deep, use_container_width=True, config={'displayModeBar': False})
+
+                # 4. 區間每日明細表
+                with st.expander("📋 查看區間每日交易數據明細"):
+                    detail_show = slice_df[['Open', 'High', 'Low', 'Close', 'Volume', 'MA5', 'MA10', 'MACD_Hist', 'RSI']].copy()
+                    detail_show.index = detail_show.index.strftime('%Y-%m-%d')
+                    st.dataframe(detail_show.sort_index(ascending=False), use_container_width=True)
 
 # --- 版權宣告與免責聲明 ---
 st.divider()
