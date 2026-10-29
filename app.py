@@ -638,6 +638,7 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
         is_above_ma5 = (c_close > c_ma5)
         is_daily_stopping_drop = is_above_ma5 and is_daily_golden_cross
 
+        # 歷史回溯之「連續 2 天站穩 20MA」判定
         is_standing_on_ma20_2days = (c_close > c_ma20) and (p_close > p_ma20)
 
         weekly_dif_decreasing = False
@@ -681,6 +682,7 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
         target_pos_d = (50 if c_hist > 0 else 0) + (50 if c_ma5 > c_ma10 else 0)
         vol_condition_d = c_vol > c_vol_ma5
         
+        # 🛡️ 歷史回溯中加入防假突破
         if weekly_macd_dead:
             is_daily_launching = (c_close > c_ma5) and (c_hist > p_hist) and is_standing_on_ma20_2days
         else:
@@ -740,13 +742,13 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
                         else:
                             rec_text = "🟡 觀察 (抱牢主升)"
                             detail_reason = "【動能型抱牢】日線震盪洗盤，但週線 5W>10W 且 MACD>0，無懼短線震盪續抱。"
+                    else:
+                        if weekly_dif_decreasing:
+                            rec_text = "🔴 賣出 (日線敏捷)"
+                            detail_reason = "【穩健型防守】週線DIF下降且日線翻空，保護獲利果斷全出。"
                         else:
-                            if weekly_dif_decreasing:
-                                rec_text = "🔴 賣出 (日線敏捷)"
-                                detail_reason = "【穩健型防守】週線DIF下降且日線翻空，保護獲利果斷全出。"
-                            else:
-                                rec_text = "🟡 觀察"
-                                detail_reason = "【防守延遲】日線翻空，但週線DIF仍上升，暫緩賣出。"
+                            rec_text = "🟡 觀察"
+                            detail_reason = "【防守延遲】日線翻空，但週線DIF仍上升，暫緩賣出。"
             else:
                 if weekly_dif_decreasing and c_rsi >= 70:
                     rec_text = "⚠️ 醞釀向下"
@@ -795,12 +797,10 @@ def generate_summary_insight(df_records, ticker, name):
     latest_reason = latest_row['詳細判定原因']
     latest_profile = latest_row['股性模式']
     
-    # 統計建議分布
     rec_counts = df_records['建議'].value_counts()
     dominant_rec = rec_counts.index[0]
     total_days = len(df_records)
     
-    # 判定大格局定調
     if "長期持有" in latest_rec:
         trend_status = "🔵 核心被動持有結構（不執行波段停損停利）"
         action_advice = "隨全球總體經濟長期成長滾動複利或穩定收取配息，免受短期技術指標干擾，建議定期定額或逢低持續續抱。"
@@ -842,7 +842,6 @@ def generate_summary_insight(df_records, ticker, name):
         box_color = "#f5f5f5"
         border_color = "#e0e0e0"
 
-    # 檢視區間內有無重大事件
     event_notes = []
     actions_found = [act for act in df_records['最新動態'] if act != "-"]
     if actions_found:
@@ -1413,7 +1412,7 @@ with tab_deep_dive:
                 hide_index=True
             )
 
-            # 💡 在表格正下方（原圖紅框處）渲染綜合判斷結論
+            # 💡 在表格正下方渲染綜合判斷結論
             summary_card = generate_summary_insight(hist_signals_df, target_ticker, target_name)
             st.markdown(summary_card, unsafe_allow_html=True)
 
