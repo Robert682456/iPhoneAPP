@@ -6,18 +6,20 @@ from plotly.subplots import make_subplots
 from streamlit_autorefresh import st_autorefresh
 import json
 import os
+import requests
 from datetime import datetime, timedelta
 
 st.set_page_config(page_title="雙指標波段系統", page_icon="📈", layout="wide")
 
-# 自動重整機制：每 5 分鐘 (300,000 毫秒) 自動重新載入網頁
+# 自動重整機制：每 5 分鐘 (300,000 毫秒) 自動重新載入網頁並掃描訊號
 st_autorefresh(interval=5 * 60 * 1000, key="auto_refresh")
 
 # ==========================================
-# 本機設定檔存取邏輯 (支援 3 組自選股)
+# 本機設定檔存取邏輯 (支援 3 組自選股與 LINE 設定)
 # ==========================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SETTINGS_FILE = os.path.join(BASE_DIR, "user_settings.json")
+NOTIFICATION_CACHE_FILE = os.path.join(BASE_DIR, "notified_cache.json")
 
 DEFAULT_LIST_1 = """0050.TW,元大台灣50
 2812.TW,台中銀
@@ -77,7 +79,10 @@ def load_settings():
         "current_group": "自選股 1",
         "watchlist_1": DEFAULT_LIST_1,
         "watchlist_2": DEFAULT_LIST_2,
-        "watchlist_3": DEFAULT_LIST_3
+        "watchlist_3": DEFAULT_LIST_3,
+        "line_token": "",
+        "line_user_id": "",
+        "enable_line_notify": False
     }
 
 def save_settings():
@@ -88,7 +93,10 @@ def save_settings():
         "current_group": st.session_state.get("current_group_choice", "自選股 1"),
         "watchlist_1": st.session_state.get("watchlist_1_text", DEFAULT_LIST_1),
         "watchlist_2": st.session_state.get("watchlist_2_text", DEFAULT_LIST_2),
-        "watchlist_3": st.session_state.get("watchlist_3_text", DEFAULT_LIST_3)
+        "watchlist_3": st.session_state.get("watchlist_3_text", DEFAULT_LIST_3),
+        "line_token": st.session_state.get("line_token_input", ""),
+        "line_user_id": st.session_state.get("line_user_id_input", ""),
+        "enable_line_notify": st.session_state.get("enable_line_notify_input", False)
     }
     try:
         with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
@@ -114,6 +122,12 @@ if 'watchlist_2_text' not in st.session_state:
     st.session_state.watchlist_2_text = settings.get("watchlist_2", DEFAULT_LIST_2)
 if 'watchlist_3_text' not in st.session_state:
     st.session_state.watchlist_3_text = settings.get("watchlist_3", DEFAULT_LIST_3)
+if 'line_token_input' not in st.session_state:
+    st.session_state.line_token_input = settings.get("line_token", "")
+if 'line_user_id_input' not in st.session_state:
+    st.session_state.line_user_id_input = settings.get("line_user_id", "")
+if 'enable_line_notify_input' not in st.session_state:
+    st.session_state.enable_line_notify_input = settings.get("enable_line_notify", False)
 
 def update_selected_from_search():
     val = st.session_state.search_ticker.strip().upper()
@@ -131,6 +145,120 @@ def parse_watchlist(text):
             ticker, name = line.split(',', 1)
             watchlist[ticker.strip()] = name.strip()
     return watchlist
+
+# ==========================================
+# LINE Messaging API 推播與狀態去重快取
+# ==========================================
+def send_line_message(token, user_id, message_text):
+    if not token or not user_id:
+        return False, "缺少 Token 或 User ID"
+    url = "https://api.line.me/v2/bot/message/push"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {token.strip()}"
+    }
+    payload = {
+        "to": user_id.strip(),
+        "messages": [
+            {
+                "type": "text",
+                "text": message_text
+            }
+        ]
+    }
+    try:
+        res = requests.post(url, headers=headers, json=payload, timeout=8)
+        if res.status_code == 200:
+            return True, "推播發送成功"
+        else:
+            return False, f"推播失敗: HTTP {res.status_code} - {res.text}"
+    except Exception as e:
+        return False, f"連線異常: {str(e)}"
+
+def load_notified_cache():
+    if os.path.exists(NOTIFICATION_CACHE_FILE):
+        try:
+            with open(NOTIFICATION_CACHE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def save_notified_cache(cache):
+    try:
+        with open(NOTIFICATION_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(cache, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+def check_and_notify_signals(df_results):
+    """
+    掃描全體自選股，當符合條件且為首次觸發時發送 LINE 通知
+    """
+    if not st.session_state.enable_line_notify_input:
+        return
+    token = st.session_state.line_token_input.strip()
+    user_id = st.session_state.line_user_id_input.strip()
+    if not token or not user_id:
+        return
+
+    cache = load_notified_cache()
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    now_time_str = datetime.now().strftime("%H:%M:%S")
+
+    for _, row in df_results.iterrows():
+        ticker = row['代碼']
+        name = row['名稱']
+        curr_rec = row['建議']
+        actions = row['最新動態']
+        price_info = row['收盤價(漲跌)']
+        reason = row['詳細判定原因']
+
+        item_cache = cache.get(ticker, {"last_rec": "", "last_gc_date": ""})
+        prev_rec = item_cache.get("last_rec", "")
+        last_gc_date = item_cache.get("last_gc_date", "")
+
+        # 🎯 條件 1：由 🟡 破底打底觀察 首次翻轉為 🟢 破底分批加碼
+        if "破底分批加碼" in curr_rec and "破底打底觀察" in prev_rec:
+            msg = (
+                f"🚨【雙指標系統 - 破底加碼警報】\n"
+                f"━━━━━━━━━━━━━━\n"
+                f"標的：{ticker} {name}\n"
+                f"現價：{price_info}\n"
+                f"狀態轉換：破底觀察 ➔ 🟢 破底分批加碼\n"
+                f"動態：{actions}\n"
+                f"原因：{reason}\n"
+                f"時間：{now_time_str}\n"
+                f"━━━━━━━━━━━━━━\n"
+                f"提示：日線指標已正式轉強站穩 5MA，確認止跌，啟動左側金字塔分批加碼！"
+            )
+            success, _ = send_line_message(token, user_id, msg)
+            if success:
+                item_cache["last_rec"] = curr_rec
+
+        # 🎯 條件 2：出現 日MACD剛金叉 (當日僅通報一次)
+        if "日MACD剛金叉" in actions and last_gc_date != today_str:
+            msg = (
+                f"⚡【雙指標系統 - 日線金叉快訊】\n"
+                f"━━━━━━━━━━━━━━\n"
+                f"標的：{ticker} {name}\n"
+                f"現價：{price_info}\n"
+                f"建議：{curr_rec}\n"
+                f"訊號：日線 MACD 正式黃金交叉翻多！\n"
+                f"原因：{reason}\n"
+                f"時間：{now_time_str}\n"
+                f"━━━━━━━━━━━━━━\n"
+                f"提示：短期動能已由空翻多，請至戰情室檢視進場規劃。"
+            )
+            success, _ = send_line_message(token, user_id, msg)
+            if success:
+                item_cache["last_gc_date"] = today_str
+
+        # 更新最新狀態紀錄
+        item_cache["last_rec"] = curr_rec
+        cache[ticker] = item_cache
+
+    save_notified_cache(cache)
 
 hide_st_style = """
             <style>
@@ -151,7 +279,7 @@ tab_dashboard, tab_rules, tab_settings, tab_war_room, tab_deep_dive = st.tabs([
 display_df = pd.DataFrame()
 
 # ==========================================
-# 分頁 3：自選股編輯頁面
+# 分頁 3：自選股與 LINE 即時通知設定
 # ==========================================
 with tab_settings:
     st.subheader("⚙️ 編輯自選股清單（支援 3 組股票組合）")
@@ -160,22 +288,46 @@ with tab_settings:
     edit_tab1, edit_tab2, edit_tab3 = st.tabs(["📁 自選股 1 (標準預設)", "📁 自選股 2", "📁 自選股 3"])
     
     with edit_tab1:
-        u_input1 = st.text_area("📝 編輯自選股 1 清單：", st.session_state.watchlist_1_text, height=450, key="text_edit_1")
+        u_input1 = st.text_area("📝 編輯自選股 1 清單：", st.session_state.watchlist_1_text, height=350, key="text_edit_1")
         if u_input1 != st.session_state.watchlist_1_text:
             st.session_state.watchlist_1_text = u_input1
             save_settings()
             
     with edit_tab2:
-        u_input2 = st.text_area("📝 編輯自選股 2 清單：", st.session_state.watchlist_2_text, height=450, key="text_edit_2")
+        u_input2 = st.text_area("📝 編輯自選股 2 清單：", st.session_state.watchlist_2_text, height=350, key="text_edit_2")
         if u_input2 != st.session_state.watchlist_2_text:
             st.session_state.watchlist_2_text = u_input2
             save_settings()
             
     with edit_tab3:
-        u_input3 = st.text_area("📝 編輯自選股 3 清單：", st.session_state.watchlist_3_text, height=450, key="text_edit_3")
+        u_input3 = st.text_area("📝 編輯自選股 3 清單：", st.session_state.watchlist_3_text, height=350, key="text_edit_3")
         if u_input3 != st.session_state.watchlist_3_text:
             st.session_state.watchlist_3_text = u_input3
             save_settings()
+
+    st.divider()
+    st.subheader("🔔 LINE 即時通知設定 (Messaging API)")
+    st.markdown("系統每 5 分鐘自動背景掃描。當股票**由『🟡 破底打底觀察』首次翻轉為『🟢 破底分批加碼』**，或**出現『日MACD剛金叉』**時，將自動發送推播到您的手機 LINE。")
+
+    col_l1, col_l2 = st.columns([1, 1])
+    with col_l1:
+        enable_line = st.checkbox("啟用 LINE 關鍵訊號推播功能", value=st.session_state.enable_line_notify_input, key="enable_line_notify_input", on_change=update_other_inputs)
+        line_token = st.text_input("Channel Access Token (Long-lived)：", type="password", value=st.session_state.line_token_input, key="line_token_input", on_change=update_other_inputs)
+    with col_l2:
+        st.write("")
+        st.write("")
+        line_user_id = st.text_input("Your User ID (以 U 開頭的英數字)：", value=st.session_state.line_user_id_input, key="line_user_id_input", on_change=update_other_inputs)
+        
+        if st.button("🧪 發送測試推播到手機"):
+            if not line_token or not line_user_id:
+                st.error("請先填入 Channel Access Token 與 User ID！")
+            else:
+                test_msg = f"🔔【雙指標系統】連線測試成功！當前時間：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}。系統已啟動即時盯盤監控！"
+                ok, res_text = send_line_message(line_token, line_user_id, test_msg)
+                if ok:
+                    st.success("✅ 測試訊息已成功推播至您的手機 LINE！")
+                else:
+                    st.error(f"❌ 發送失敗：{res_text}")
 
 if st.session_state.current_group_choice == "自選股 2":
     ACTIVE_WATCHLIST = parse_watchlist(st.session_state.watchlist_2_text)
@@ -954,6 +1106,8 @@ with tab_dashboard:
     
     with st.spinner(f"正在綜合運算【{st.session_state.current_group_choice}】所有標的..."):
         display_df = analyze_signals_comprehensive(ACTIVE_WATCHLIST)
+        # 背景比對狀態並執行 LINE 通知推播
+        check_and_notify_signals(display_df)
 
     if not display_df.empty:
         st.subheader(f"📊 【{st.session_state.current_group_choice}】狀態總覽 (長短線綜合唯一解 - 共 {len(display_df)} 檔)")
@@ -1175,7 +1329,6 @@ with tab_war_room:
         today_str = datetime.now().strftime('%Y%m%d')
         grp_name_clean = st.session_state.current_group_choice.replace(" ", "")
 
-        # 輔助函式：渲染標題與右上角匯出按鈕
         def render_section_with_export(title_text, df_sec, key_prefix):
             col_t, col_b = st.columns([4, 1])
             with col_t:
@@ -1383,7 +1536,6 @@ with tab_deep_dive:
                 )
                 st.markdown("---")
 
-            # 深度分析表格標題與右上角匯出按鈕
             col_dh_title, col_dh_btn = st.columns([4, 1])
             with col_dh_title:
                 st.markdown(f"#### 📋 {target_ticker} - {target_name} 逐日狀態明細表（{start_date.strftime('%Y/%m/%d')} ~ {end_date.strftime('%Y/%m/%d')}，共 {len(hist_signals_df)} 個交易日）")
