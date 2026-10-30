@@ -165,7 +165,6 @@ def parse_watchlist(text):
 temp_ticker = st.session_state.search_ticker.strip().upper()
 temp_name = st.session_state.search_name.strip()
 
-
 # ==========================================
 # LINE Messaging API 推播
 # ==========================================
@@ -263,7 +262,7 @@ st.markdown(hide_st_style, unsafe_allow_html=True)
 # 🎯 核心決策判斷引擎：MACD + 假金叉/假死叉 雙向防禦濾網
 # ==========================================
 def evaluate_strategy_signal(
-    curr_close, c_ma10, c_ma20, c_hist, is_buy_and_hold, was_holding=True
+    curr_close, prev_close, c_ma10, c_ma20, c_hist, is_buy_and_hold, was_holding=True
 ):
     if is_buy_and_hold: 
         return "🔵 長期持有 (核心被動)", "【免出場資產】定期定額或逢低續抱，不受短期波動影響。"
@@ -271,7 +270,12 @@ def evaluate_strategy_signal(
     is_macd_bullish = (c_hist > 0)
     is_macd_bearish = (c_hist < 0)
     is_above_20ma = (curr_close > c_ma20)
-    is_above_10ma = (curr_close > c_ma10)
+    
+    # 【關鍵修正】：洗盤防禦濾網升級
+    # 如果 1. 股價沒有實質跌破 10MA 超過 1.5% (容忍微幅刺穿)
+    # 或者 2. 股價當天是上漲/平盤的 (主力硬拉)
+    # 這兩種情況都不該被均線落後交叉給洗掉！
+    is_defending_10ma = (curr_close > c_ma10 * 0.985) or (curr_close >= prev_close)
 
     # ---------------------------------------------------------
     # A. 買進 / 續抱條件 (MACD 紅柱 且 在 20MA 之上)
@@ -296,11 +300,11 @@ def evaluate_strategy_signal(
     # ---------------------------------------------------------
     elif is_macd_bearish:
         if was_holding:
-            # 💡 【新增：假死叉防禦濾網 (高檔洗盤防護)】
-            if is_above_10ma:
-                return "🟢 震盪續抱 (假死叉防禦)", f"【洗盤防禦】日 MACD 雖翻綠，但股價仍強勢守在 10MA({c_ma10:.2f}) 之上，判定為高檔震盪洗盤，忽略死叉訊號，堅定抱牢不被洗下車！"
+            # 💡 【洗盤防禦發動】：如果還撐在防守條件內，且依然在月線之上
+            if is_defending_10ma and is_above_20ma:
+                return "🟢 震盪續抱 (假死叉防禦)", f"【洗盤防禦】日 MACD 雖翻綠，但股價未實質跌破防守線或當日為上漲，判定為高檔震盪洗盤，堅定抱牢！"
             else:
-                return "🔴 賣出 (MACD死叉+破線)", f"日 MACD 柱狀翻綠(死叉) 且股價已跌破 10MA({c_ma10:.2f})，動能實質轉空，果斷賣出停利/停損。"
+                return "🔴 賣出 (MACD死叉+破線)", f"日 MACD 柱狀翻綠(死叉) 且股價已實質跌破防線，動能轉空，果斷賣出停利/停損。"
         else:
             return "⚪ 空手觀望 (空頭格局)", "日 MACD 維持綠柱空頭排列，保留現金，耐心等待買點。"
 
@@ -370,7 +374,7 @@ def analyze_signals_comprehensive(watchlist):
             elif prev_hist_d >= 0 and curr_hist_d < 0: actions.append(f"日MACD剛死叉 ({last_date_str})")
 
             rec_text, detail_reason = evaluate_strategy_signal(
-                curr_close, curr_ma10_d, curr_ma20_d, curr_hist_d, is_buy_and_hold, was_holding=was_holding_prev
+                curr_close, prev_close, curr_ma10_d, curr_ma20_d, curr_hist_d, is_buy_and_hold, was_holding=was_holding_prev
             )
 
             results.append({"代碼": ticker, "名稱": name, "收盤價(漲跌)": price_display, "股性模式": stock_profile, "股性類別": stock_category, "建議": rec_text, "最新動態": " / ".join(actions) if actions else "-", "詳細判定原因": detail_reason, "Yahoo股市": f"https://finance.yahoo.com/quote/{ticker}"})
@@ -438,7 +442,9 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
         if p_hist <= 0 and c_hist > 0: actions.append(f"日MACD剛金叉 ({date_short})")
         elif p_hist >= 0 and c_hist < 0: actions.append(f"日MACD剛死叉 ({date_short})")
 
-        rec_text, detail_reason = evaluate_strategy_signal(c_close, c_ma10, c_ma20, c_hist, is_buy_and_hold, was_holding=sim_holding)
+        rec_text, detail_reason = evaluate_strategy_signal(
+            c_close, p_close, c_ma10, c_ma20, c_hist, is_buy_and_hold, was_holding=sim_holding
+        )
 
         if "買進" in rec_text or "續抱" in rec_text: sim_holding = True
         elif "賣出" in rec_text: sim_holding = False
@@ -653,13 +659,13 @@ with tab_rules:
        * **觸發條件**：日 MACD 柱狀由綠翻紅（黃金交叉），**且** 股價站上日 20MA (月線)。
        * **動作**：多頭趨勢確立，果斷買進或安心續抱。
     2. **🔴 賣出 / 出清法則**
-       * **觸發條件**：日 MACD 柱狀由紅翻綠（死亡交叉），**且** 股價跌破 10MA 短期支撐。
+       * **觸發條件**：日 MACD 柱狀由紅翻綠（死亡交叉），**且** 股價跌破防守線。
        * **動作**：動能實質轉空，果斷賣出停利/停損。
     3. **⚠️ 假金叉排除濾網 (空方逃命波防禦)**
        * **觸發條件**：日 MACD 柱狀雖翻紅，**但股價被壓在 20MA (月線) 之下**。
        * **動作**：此為空頭排列下的弱勢反彈，維持空手觀望，堅決不接刀！
     4. **🛡️ 假死叉防禦濾網 (高檔洗盤防禦)**
-       * **觸發條件**：日 MACD 柱狀雖微幅翻綠，**但股價仍強勢站在 10MA 之上**。
+       * **觸發條件**：日 MACD 柱狀雖微幅翻綠，**但當天為上漲/平盤，或股價未實質跌破 10MA**。
        * **動作**：此為高檔強勢震盪洗盤，忽略死叉訊號，堅定抱牢不被洗下車！
     """)
 
