@@ -263,7 +263,7 @@ hide_st_style = """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
 # ==========================================
-# 🎯 核心決策判斷引擎：修復假突破與假破線
+# 🎯 核心決策判斷引擎：MACD + 雙向防禦 + KD提前預警 + DIF 15%衰退停利
 # ==========================================
 def evaluate_strategy_signal(
     curr_close, prev_close, c_ma10, c_ma20, p_ma20, c_hist, c_dif, p_dif, c_k, c_d, p_k, p_d, is_buy_and_hold, was_holding=True
@@ -291,13 +291,13 @@ def evaluate_strategy_signal(
     # ---------------------------------------------------------
     if is_macd_bullish and is_above_20ma:
         if was_holding: 
-            if c_dif < (p_dif * 0.9) and p_dif > 0:
-                return "🔴 賣出 (DIF反轉向下)", f"{dif_tag} 雖然 MACD 仍為紅柱，但 DIF 已領先反轉向下衰退達 10%，動能顯著轉弱，建議逢高賣出停利。"
+            # 💡 【修正：波段續抱中，若 DIF 衰退達 15%，提前賣出】
+            if c_dif < (p_dif * 0.85) and p_dif > 0:
+                return "🔴 賣出 (DIF反轉向下)", f"{dif_tag} 雖然 MACD 仍為紅柱，但 DIF 已領先反轉向下且衰退達 15%，動能顯著轉弱，建議逢高賣出停利。"
             else:
                 return "🟢 波段續抱 (多頭格局)", f"{dif_tag} 日 MACD 維持紅柱且股價在 20MA({c_ma20:.2f}) 之上，安全抱牢。"
         else: 
-            # 💡 【修正：2日站穩防假突破】(針對 10/7 的誤判)
-            # 要求前一日收盤價也必須站上昨日 20MA，過濾掉「單日刺穿20MA」的假突破陷阱
+            # 2日站穩防假突破
             if prev_close >= p_ma20:
                 return "🟢 買進 (MACD金叉+站穩月線)", f"{dif_tag} 日 MACD 翻紅且股價連續站穩 20MA({c_ma20:.2f})，多頭啟動，順勢買進。"
             else:
@@ -308,12 +308,10 @@ def evaluate_strategy_signal(
     # ---------------------------------------------------------
     elif is_macd_bullish and not is_above_20ma:
         if was_holding: 
-            # 💡 【修正：底部試單保護】(針對 10/20~10/21 的誤殺)
-            # 判斷是「從高檔破線」還是「我們在底部KD預警進場，正在挑戰月線」
+            # 底部試單保護
             if prev_close >= p_ma20:
                 return "🔴 賣出 (跌破月線)", f"{dif_tag} 股價已實質跌破 20MA({c_ma20:.2f})，防守紀律賣出。"
             else:
-                # 底部試單部位，如果還守住 10MA，就續抱挑戰月線
                 if is_defending_10ma:
                     return "🟢 震盪續抱 (挑戰月線中)", f"{dif_tag} 底部試單部位，MACD 翻紅挑戰月線中，守穩 10MA({c_ma10:.2f}) 續抱。"
                 else:
@@ -730,8 +728,8 @@ with tab_rules:
     5. **🛡️ 假死叉防禦濾網 (高檔洗盤防禦)**
        * **觸發條件**：日 MACD 柱狀雖微幅翻綠，**但當天為上漲/平盤，或股價未實質跌破 10MA**。
        * **動作**：此為高檔強勢震盪洗盤，忽略死叉訊號，堅定抱牢不被洗下車！
-    6. **🔴 提前停利濾網 (DIF 反轉向下衰退達 10%)**
-       * **觸發條件**：波段續抱中，但當日 DIF 小於前一日 DIF 的 90% (衰退達 10%)。
+    6. **🔴 提前停利濾網 (DIF 反轉向下衰退達 15%)**
+       * **觸發條件**：波段續抱中，但當日 DIF 小於前一日 DIF 的 85% (衰退達 15%)。
        * **動作**：動能顯著衰退，強制賣出提前停利。
     7. **🟡 單日假突破過濾 (2日確認法)**
        * **觸發條件**：雖然 MACD 翻紅且今日站上月線，但昨日收盤價卻在月線之下。
