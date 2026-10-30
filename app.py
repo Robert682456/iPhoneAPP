@@ -160,6 +160,12 @@ def parse_watchlist(text):
     return watchlist
 
 # ==========================================
+# 🎯 提取全域搜尋變數 (修復 NameError)
+# ==========================================
+temp_ticker = st.session_state.search_ticker.strip().upper()
+temp_name = st.session_state.search_name.strip()
+
+# ==========================================
 # LINE Messaging API 推播
 # ==========================================
 def send_line_message(token, user_id, message_text):
@@ -192,19 +198,20 @@ def build_morning_report(df_results, market_trend, group_name):
     today_str = now_tw.strftime("%Y-%m-%d")
     m_status = market_trend['status'] if market_trend else "維持觀察"
     m_advice = market_trend['advice'] if market_trend else "無大盤資料"
-    up_stocks = df_results[df_results['建議'].str.contains("買進", na=False)] if not df_results.empty else pd.DataFrame()
+    up_stocks = df_results[df_results['建議'].str.contains("買進|走勢向上|加碼", na=False)] if not df_results.empty else pd.DataFrame()
     items_text = [f"• {row['代碼']} {row['名稱']}: {row['建議']}" for _, row in up_stocks.head(6).iterrows()] if not up_stocks.empty else ["• 目前無多頭買進標的，多看少做。"]
     return f"🌅【雙指標系統 - 每日盤前早報】\n━━━━━━━━━━━━━━\n📅 日期：{today_str} (08:45 早報)\n📁 組合：{group_name}\n\n🧭 大盤資金水位：\n狀態：{m_status}\n指引：{m_advice}\n\n⭐ 盤前多方焦點標的：\n{chr(10).join(items_text)}\n━━━━━━━━━━━━━━\n💡 提醒：若有觸發日MACD金叉，系統將於盤中即時推播。"
 
 def build_evening_report(df_results, group_name):
     now_tw = get_tw_now()
     today_str = now_tw.strftime("%Y-%m-%d")
-    buy_cnt = len(df_results[df_results['建議'].str.contains("買進", na=False)]) if not df_results.empty else 0
-    sell_cnt = len(df_results[df_results['建議'].str.contains("賣出", na=False)]) if not df_results.empty else 0
+    total_count = len(df_results)
+    buy_cnt = len(df_results[df_results['建議'].str.contains("買進|走勢向上", na=False)]) if not df_results.empty else 0
+    sell_cnt = len(df_results[df_results['建議'].str.contains("賣出|逃命", na=False)]) if not df_results.empty else 0
     hold_cnt = len(df_results[df_results['建議'].str.contains("續抱|核心", na=False)]) if not df_results.empty else 0
     empty_cnt = len(df_results[df_results['建議'].str.contains("空手|假金叉", na=False)]) if not df_results.empty else 0
     action_items = [f"• {row['代碼']} {row['名稱']}: {row['最新動態']} ({row['建議']})" for _, row in df_results.iterrows() if row['最新動態'] != "-"] if not df_results.empty else ["• 今日無新增 MACD 交叉訊號。"]
-    return f"🌆【雙指標系統 - 每日盤後總結】\n━━━━━━━━━━━━━━\n📅 日期：{today_str} (13:45 盤後)\n📁 組合：{group_name}\n\n📊 盤後狀態分佈：\n🟢 買進建倉：{buy_cnt} 檔\n🟢 多頭持股續抱：{hold_cnt} 檔\n🔴 賣出停損/停利：{sell_cnt} 檔\n⚪ 空手觀望：{empty_cnt} 檔\n\n⚡ 今日關鍵動態事件：\n{chr(10).join(action_items[:6])}\n━━━━━━━━━━━━━━\n📋 完整日誌可至『深度分析』匯出 CSV 進行盤後覆盤。"
+    return f"🌆【雙指標系統 - 每日盤後總結】\n━━━━━━━━━━━━━━\n📅 日期：{today_str} (13:45 盤後)\n📁 組合：{group_name} (共 {total_count} 檔)\n\n📊 盤後狀態分佈：\n🟢 買進建倉/向上：{buy_cnt} 檔\n🟢 多頭持股續抱：{hold_cnt} 檔\n🔴 賣出/逃命防守：{sell_cnt} 檔\n⚪ 空手觀望：{empty_cnt} 檔\n\n⚡ 今日關鍵動態事件：\n{chr(10).join(action_items[:6])}\n━━━━━━━━━━━━━━\n📋 完整日誌可至『深度分析』匯出 CSV 進行盤後覆盤。"
 
 def check_and_notify_signals(df_results, market_trend, group_name):
     token = st.session_state.line_token_input.strip()
@@ -486,6 +493,9 @@ def get_chart_data(ticker, interval, period):
 
     return df
 
+# ==========================================
+# 🎯 頁面分頁宣告 (最先宣告，保證正常渲染)
+# ==========================================
 tab_dashboard, tab_rules, tab_settings, tab_war_room, tab_deep_dive = st.tabs(["📊 看盤儀表板", "📖 策略判斷原則", "⚙️ 自選股編輯", "⚔️ 買賣戰情室", "🔬 深度分析"])
 
 if st.session_state.current_group_choice == "自選股 2": ACTIVE_WATCHLIST = parse_watchlist(st.session_state.watchlist_2_text)
@@ -509,11 +519,21 @@ with tab_dashboard:
     col_temp1, col_temp2, col_temp3 = st.columns([2, 2, 2])
     with col_temp1: st.text_input("輸入代碼 (例：2317.TW)", key="search_ticker", on_change=update_selected_from_search)
     with col_temp2: st.text_input("輸入名稱 (選填)", key="search_name", on_change=update_other_inputs)
-    if st.session_state.search_ticker.strip():
-        tmp_t, tmp_n = st.session_state.search_ticker.strip().upper(), st.session_state.search_name.strip()
+    if temp_ticker:
+        tmp_t, tmp_n = temp_ticker, temp_name
         temp_df = analyze_signals_comprehensive({tmp_t: tmp_n if tmp_n else tmp_t})
         if not temp_df.empty and "⚠️ 無資料" not in temp_df.iloc[0]['收盤價(漲跌)']:
             st.dataframe(style_dataframe(temp_df.drop(columns=['股性類別'])), use_container_width=True)
+            with col_temp3:
+                st.write("")
+                st.write("")
+                if st.button(f"➕ 加入到當前【{st.session_state.current_group_choice}】"):
+                    target_key = "watchlist_1_text" if st.session_state.current_group_choice == "自選股 1" else ("watchlist_2_text" if st.session_state.current_group_choice == "自選股 2" else "watchlist_3_text")
+                    if tmp_t not in st.session_state[target_key]:
+                        st.session_state[target_key] += f"\n{tmp_t},{tmp_n if tmp_n else tmp_t}"
+                        save_settings()
+                        st.rerun()
+                    else: st.warning("此標的已在清單中。")
         else: st.error("無法取得該代碼資料。")
     st.divider()
 
