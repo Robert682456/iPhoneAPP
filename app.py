@@ -161,9 +161,14 @@ def parse_watchlist(text):
     return watchlist
 
 # ==========================================
-# 🎯 MACD + RSI 雙重共振背離偵測演算法
+# 🎯 徹底修正：MACD + RSI 雙重共振背離判定 (排除假背離)
 # ==========================================
 def detect_dual_divergence(close_series, macd_dif_series, rsi_series, order=4, lookback=45):
+    """
+    絕對條件：
+    1. 頂背離：當前收盤價必須『實質接近近 60 日最高點 (>= 97%)』且站穩 20MA，嚴禁在跌深低檔觸發
+    2. 底背離：當前收盤價必須『實質接近近 60 日最低點 (<= 103%)』
+    """
     if len(close_series) < lookback:
         return False, False
 
@@ -171,9 +176,14 @@ def detect_dual_divergence(close_series, macd_dif_series, rsi_series, order=4, l
     m = macd_dif_series.iloc[-lookback:].values
     r = rsi_series.iloc[-lookback:].values
 
+    curr_p = c[-1]
     w_min = np.min(c)
     w_max = np.max(c)
-    w_range = w_max - w_min if w_max > w_min else 1.0
+
+    # 若現價離近 45 天最高點還有 5% 以上差距，直接封鎖頂背離！(徹底解決 202 元低檔喊頂背離的 Bug)
+    allow_bear_div = (curr_p >= w_max * 0.96)
+    # 若現價離近 45 天最低點高出 5% 以上，直接封鎖底背離！
+    allow_bull_div = (curr_p <= w_min * 1.04)
 
     troughs = []
     peaks = []
@@ -184,21 +194,19 @@ def detect_dual_divergence(close_series, macd_dif_series, rsi_series, order=4, l
         if c[i] == max(c[i - order:i + order + 1]):
             peaks.append(i)
 
-    # 雙重底背離 (位階 <= 30%、實質跌破前低、MACD 與 RSI 同步墊高)
+    # 1. 雙重底背離
     is_dual_bull_div = False
-    if len(troughs) >= 2:
+    if allow_bull_div and len(troughs) >= 2:
         i1, i2 = troughs[-2], troughs[-1]
-        trough_percentile = ((c[i2] - w_min) / w_range) * 100.0
-        if (len(c) - 1 - i2 <= 8) and (trough_percentile <= 30.0) and (c[i2] < c[i1] * 0.995):
+        if (len(c) - 1 - i2 <= 6) and (c[i2] < c[i1] * 0.995):
             if (m[i2] > m[i1]) and (r[i2] > r[i1]):
                 is_dual_bull_div = True
 
-    # 雙重頂背離 (位階 >= 70%、實質突破前高、MACD 與 RSI 同時滑落)
+    # 2. 雙重頂背離
     is_dual_bear_div = False
-    if len(peaks) >= 2:
+    if allow_bear_div and len(peaks) >= 2:
         p1, p2 = peaks[-2], peaks[-1]
-        peak_percentile = ((c[p2] - w_min) / w_range) * 100.0
-        if (len(c) - 1 - p2 <= 8) and (peak_percentile >= 70.0) and (c[p2] > c[p1] * 1.008):
+        if (len(c) - 1 - p2 <= 6) and (c[p2] > c[p1] * 1.005):
             if (m[p2] < m[p1]) and (r[p2] < r[p1]):
                 is_dual_bear_div = True
 
@@ -351,8 +359,8 @@ def check_and_notify_signals(df_results, market_trend, group_name):
                 if success:
                     item_cache["last_div_date"] = today_str
 
-            # 敏捷出場警報
-            elif "出清保本" in curr_rec and "出清保本" not in prev_rec:
+            # 敏捷出場警報 (首次觸發才發送)
+            elif "出清保本" in curr_rec and "出清保本" not in prev_rec and "空手" not in prev_rec:
                 msg = (
                     f"🔴【雙指標系統 - 趨勢破位出場警報】\n"
                     f"━━━━━━━━━━━━━━\n"
@@ -362,7 +370,7 @@ def check_and_notify_signals(df_results, market_trend, group_name):
                     f"原因：{reason}\n"
                     f"時間：{now_time_str}\n"
                     f"━━━━━━━━━━━━━━\n"
-                    f"提示：實質跌破 20MA 月線，多頭結構瓦解，紀律出清保本！"
+                    f"提示：實質跌破 20MA 月線，多頭結構瓦解，紀律出清剩餘部位保本！"
                 )
                 send_line_message(token, user_id, msg)
 
@@ -433,7 +441,7 @@ hide_st_style = """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
 # ==========================================
-# 🎯 核心決策判斷引擎 (日線階梯敏捷停利 + 低檔超賣禁止追殺)
+# 🎯 核心決策判斷引擎 (加入真實持倉狀態機)
 # ==========================================
 def evaluate_strategy_signal(
     curr_close, prev_close, c_vol, c_vol_ma5,
@@ -443,7 +451,8 @@ def evaluate_strategy_signal(
     is_broke_1y_low, low_1y_prev, percentile_1y,
     weekly_dif_decreasing, weekly_ma_dead, weekly_macd_dead,
     is_weekly_bullish, is_weekly_bottom_forming,
-    is_dual_bull_div=False, is_dual_bear_div=False
+    is_dual_bull_div=False, is_dual_bear_div=False,
+    was_holding=True, just_exited=False
 ):
     change_pct = ((curr_close - prev_close) / prev_close) * 100 if prev_close > 0 else 0
 
@@ -459,13 +468,13 @@ def evaluate_strategy_signal(
     # 2. 雙重底背離 (最高優先起漲點)
     if is_dual_bull_div:
         rec_text = "🟢 雙重底背離 (爆發起漲點)"
-        detail_reason = "【雙重底背離共振】價格創波段新低(位階≤30%)，但日線 MACD 與 RSI 同時低點抬高！空方動能耗盡，大轉折起漲在即，重注重點關注！"
+        detail_reason = "【雙重底背離共振】價格創波段新低，但日線 MACD 與 RSI 同時低點抬高！空方動能耗盡，大轉折起漲在即，重注重點關注！"
         return rec_text, detail_reason
 
-    # 3. 雙重頂背離 (高檔見頂警報)
-    if is_dual_bear_div and not is_broke_1y_low and curr_close > c_ma20:
+    # 3. 雙重頂背離 (必須有持股且在 20MA 上方的高檔才准觸發)
+    if is_dual_bear_div and was_holding and curr_close > c_ma20:
         rec_text = "🟠 雙重頂背離 (強制減碼50%)"
-        detail_reason = "【雙重頂背離共振】價格創波段新高(位階≥70%)，但 MACD 與 RSI 雙雙滑落，量價動能嚴重脫鉤，頭部成型風險極大，建議先行減碼 50% 鎖利！"
+        detail_reason = "【雙重頂背離共振】價格創波段新高，但 MACD 與 RSI 雙雙滑落，量價動能嚴重脫鉤，頭部成型風險極大，建議先行減碼 50% 鎖利！"
         return rec_text, detail_reason
 
     # 4. 破底處理 (方案 A 嚴格確認型)
@@ -488,74 +497,83 @@ def evaluate_strategy_signal(
         detail_reason = f"【SPC極端超跌】跌破LCL、爆出2倍均量且RSI超賣({c_rsi:.1f})，籌碼換手醞釀強彈！"
         return rec_text, detail_reason
 
-    # 🛡️ 6. 低檔超賣禁止追殺防護 (阿呆谷防護網)
+    # 🛡️ 6. 低檔超賣禁止追殺防護
     is_severely_oversold = (curr_close <= c_lcl) or (c_rsi <= 32.0)
     if is_severely_oversold:
         rec_text = "🟡 負乖離超賣 (暫緩追殺等待反彈)"
         detail_reason = f"【禁止殺跌防護】股價跌破布林下軌或 RSI 進入極度超賣({c_rsi:.1f})，隨時醞釀技術反彈，嚴禁在阿呆谷殺出持股，等待反彈再行處置。"
         return rec_text, detail_reason
 
-    # 7. 判斷多頭進場條件
+    # 7. 判斷多頭進場條件 (要求連續 2 天站穩 20MA，過濾一日假突破！)
     is_standing_on_ma20_2days = (curr_close > c_ma20) and (p_close > p_ma20)
-    if weekly_macd_dead:
-        is_daily_launching = (curr_close > c_ma5) and (c_hist > p_hist) and is_standing_on_ma20_2days
-    else:
-        is_daily_launching = (curr_close > c_ma5) and (c_hist > p_hist)
-
     target_pos_d = (50 if c_hist > 0 else 0) + (50 if c_ma5 > c_ma10 else 0)
     vol_condition_d = c_vol > c_vol_ma5
 
-    # 8. 走勢向上 (標準右側多頭)
-    if target_pos_d == 100 and vol_condition_d and curr_close > c_ma10:
+    # 8. 走勢向上 (標準右側多頭，必須連續站穩月線)
+    if is_standing_on_ma20_2days and target_pos_d == 100 and vol_condition_d:
         if is_weekly_bullish:
             rec_text = "🟢 走勢向上"
-            detail_reason = "【長短線共振帶量】週線維持長多，日線雙指標翻多站穩均線且成交量超越5均量，波段強烈攻擊！"
+            detail_reason = "【長短線共振帶量】週線維持長多，日線連續2日站穩月線且成交量超越5均量，波段強烈攻擊！"
         else:
             rec_text = "🟡 觀察 (短多長空)"
-            detail_reason = "【短多長空】日線翻多帶量，但週線長線格局尚未同步，暫作短線觀察。"
+            detail_reason = "【短多長空】日線翻多帶量站穩月線，但週線長線格局尚未同步，暫作短線觀察。"
         return rec_text, detail_reason
 
-    # 🎯 9. 高動能股專用：日線階梯式敏捷停利與出清規則 (全面取代滯後的週MACD)
+    # 🎯 9. 高動能股專用：持倉狀態機 (終結天天重複叫人出清)
     if is_high_momentum:
-        # 第二道終極防線：跌破月線 (20MA) 全數出清保本
+        # A. 如果當前在月線 (20MA) 之下
         if curr_close < c_ma20:
-            rec_text = "🔴 趨勢破位 (出清保本)"
-            detail_reason = f"【動能型月線破位】收盤價({curr_close:.2f})實質跌破日 20MA 月線({c_ma20:.2f})，多頭防線瓦解，紀律出清剩餘部位保本！"
-            return rec_text, detail_reason
-
-        # 第一道敏捷防線：跌破日 10MA 或 日MACD翻綠，立即減碼 50%
-        if curr_close < c_ma10 or (c_hist <= 0 and p_hist > 0):
-            rec_text = "🟠 敏捷減碼 50% (跌破10MA)"
-            detail_reason = f"【動能型第一防線】收盤價跌破日 10MA({c_ma10:.2f})或MACD翻空，短期動能衰退，先行減碼 50% 鎖住高檔獲利，其餘以 20MA 防守。"
-            return rec_text, detail_reason
-
-        # 醞釀向上進場判斷
-        if is_weekly_bottom_forming:
-            if is_daily_launching:
-                rec_text = "🌟 醞釀向上 (週大底+日發動)"
-                detail_reason = "【週線大底＋日線連續2天站穩20MA】週MACD綠柱持續收斂打底，且日線已實質站穩月線2日確認發動，大波段起跑首選！"
+            if was_holding or just_exited:
+                # 剛剛跌破第一天：叫你出清！
+                rec_text = "🔴 趨勢破位 (出清保本)"
+                detail_reason = f"【動能型月線破位】收盤價({curr_close:.2f})實質跌破日 20MA 月線({c_ma20:.2f})，多頭防線瓦解，紀律出清剩餘部位保本！"
             else:
-                rec_text = "💡 醞釀向上 (週大底打底)"
-                detail_reason = "【週線大底沉澱】週MACD綠柱收斂或低檔超賣，大格局正築底中，適合左側分批布局。"
+                # 已經跌破很多天：你手上根本沒股票，冷靜觀望即可！
+                if is_weekly_bottom_forming:
+                    rec_text = "💡 醞釀向上 (大底打底)"
+                    detail_reason = "【月線下築底】目前無持股。週線MACD綠柱收斂，耐心等待日線連續2日站穩月線再行進場。"
+                else:
+                    rec_text = "⚪ 空手觀望 (破線無持股)"
+                    detail_reason = f"【月線下空頭慣性】目前空手無部位。股價處於日 20MA({c_ma20:.2f}) 之下，空方主導，多看少做不接刀。"
             return rec_text, detail_reason
 
-        if percentile_1y <= 25.0:
-            rec_text = "🟡 歷史低檔打底 (抱牢)"
-            detail_reason = f"【歷史相對低點保護】近1年位階僅 {percentile_1y:.1f}%(≤25%)，基期極低，低接者抱牢勿殺低！"
+        # B. 如果在月線之上，但跌破 10MA：敏捷減碼 50%
+        if curr_close < c_ma10 or (c_hist <= 0 and p_hist > 0):
+            if was_holding:
+                rec_text = "🟠 敏捷減碼 50% (跌破10MA)"
+                detail_reason = f"【動能型第一防線】收盤價跌破日 10MA({c_ma10:.2f})或MACD翻空，短期動能衰退，先行減碼 50% 鎖住高檔獲利，其餘以 20MA 防守。"
+            else:
+                rec_text = "⚪ 空手觀望 (均線糾結)"
+                detail_reason = "【未達進場標準】股價跌破 10MA 且尚未確立多頭慣性，空手者請勿躁進。"
             return rec_text, detail_reason
 
-        rec_text = "🟡 觀察 (高檔震盪)"
-        detail_reason = "【動能型防守正常】股價仍維持在 10MA 與 20MA 之上，短期震盪洗盤，持股續抱。"
+        # C. 突破第一天 (單日站上 20MA，但未滿 2 天)：警示防假突破
+        if curr_close >= c_ma20 and p_close < p_ma20:
+            rec_text = "🟡 突破月線觀察 (待站穩第2日)"
+            detail_reason = f"【防假突破過濾】單日強彈突破月線({c_ma20:.2f})，需待明日收盤再次確認站穩月線方准正式進場，切勿盲目追高！"
+            return rec_text, detail_reason
+
+        # D. 月線上正常持股中
+        if was_holding:
+            rec_text = "🟡 抱牢主升 (高檔震盪)"
+            detail_reason = "【動能型持股續抱】股價仍維持在 10MA 與 20MA 之上，多頭格局完好，抱牢主升段。"
+        else:
+            if is_standing_on_ma20_2days and (curr_close > c_ma5):
+                rec_text = "🌟 醞釀向上 (週大底+日發動)"
+                detail_reason = "【日線連續2天站穩20MA】波段起跑確認，可開始分批建倉佈局！"
+            else:
+                rec_text = "🟡 觀察 (盤整震盪)"
+                detail_reason = "【盤整無方向】指標未完全共振，空手觀望。"
         return rec_text, detail_reason
 
     # 10. 穩健型股票常規防守規則
     else:
         if curr_close < c_ma20 and weekly_dif_decreasing:
-            rec_text = "🔴 賣出 (日線敏捷)"
+            rec_text = "🔴 賣出 (日線敏捷)" if was_holding else "⚪ 空手觀望 (破線)"
             detail_reason = "【穩健型防守】跌破月線且週線 DIF 下降，保護獲利果斷全出。"
             return rec_text, detail_reason
         elif curr_close < c_ma10:
-            rec_text = "🟠 建議減碼 (破10MA)"
+            rec_text = "🟠 建議減碼 (破10MA)" if was_holding else "⚪ 空手觀望"
             detail_reason = "【穩健型減碼】跌破 10MA，動能減弱，分批減碼 30%~50%。"
             return rec_text, detail_reason
         elif is_weekly_bottom_forming:
@@ -634,10 +652,7 @@ def analyze_signals_comprehensive(watchlist):
             
             if is_buy_and_hold:
                 is_high_momentum = False
-                if "SGOV" in ticker or "BIL" in ticker or "SHV" in ticker or "債" in name:
-                    stock_profile = "💰 核心·收息存債"
-                else:
-                    stock_profile = "🏛️ 核心·指數複利"
+                stock_profile = "💰 核心·收息存債" if ("SGOV" in ticker or "債" in name) else "🏛️ 核心·指數複利"
                 stock_category = "穩健型"
             else:
                 is_high_momentum = (atr_pct >= 3.5)
@@ -671,6 +686,10 @@ def analyze_signals_comprehensive(watchlist):
             prev_ma20_d = ma20_d.iloc[-2]
             curr_hist_d, prev_hist_d = hist_d.iloc[-1], hist_d.iloc[-2]
             curr_vol_d, curr_vol_ma5_d = volume_d.iloc[-1], vol_ma5_d.iloc[-1]
+
+            # 判斷是否在前一交易日仍在月線上 (判斷持倉狀態)
+            was_holding_prev = (prev_close >= prev_ma20_d)
+            just_exited = (prev_close >= prev_ma20_d and curr_close < curr_ma20_d)
 
             is_dual_bull_div, is_dual_bear_div = detect_dual_divergence(close_d, dif_d, rsi_d)
 
@@ -720,7 +739,8 @@ def analyze_signals_comprehensive(watchlist):
                 is_broke_1y_low, low_1y_prev, percentile_1y,
                 weekly_dif_decreasing, weekly_ma_dead, weekly_macd_dead,
                 is_weekly_bullish, is_weekly_bottom_forming,
-                is_dual_bull_div, is_dual_bear_div
+                is_dual_bull_div, is_dual_bear_div,
+                was_holding_prev, just_exited
             )
 
             results.append({
@@ -756,18 +776,20 @@ def analyze_signals_comprehensive(watchlist):
             elif "破底打底觀察" in row['建議']: return 6
             elif "歷史低檔打底" in row['建議']: return 7
             elif "頂背離" in row['建議']: return 8
-            elif "敏捷減碼" in row['建議'] or "建議減碼" in row['建議']: return 9
+            elif "敏捷減碼" in row['建議']: return 9
             elif "負乖離超賣" in row['建議']: return 10
-            elif "出清保本" in row['建議'] or "賣出" in row['建議']: return 11
-            elif "觀察" in row['建議']: return 12
-            else: return 13
+            elif "趨勢破位" in row['建議']: return 11
+            elif "突破月線觀察" in row['建議']: return 12
+            elif "空手觀望" in row['建議']: return 13
+            elif "觀察" in row['建議']: return 14
+            else: return 15
         df_results['SortRank'] = df_results.apply(get_sort_rank, axis=1)
         df_results = df_results.sort_values(by=['SortRank', '代碼']).drop(columns=['SortRank']).reset_index(drop=True)
         
     return df_results
 
 # ==========================================
-# 歷史逐日狀態回溯引擎
+# 歷史逐日狀態回溯引擎 (專門按時間順序維護真實持倉狀態)
 # ==========================================
 @st.cache_data(ttl=300)
 def generate_historical_signals_table(ticker, name, start_date, end_date):
@@ -834,11 +856,14 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
 
     is_buy_and_hold = (ticker in BUY_AND_HOLD_LIST) or ("美債" in name and "0-3" in name)
 
-    daily_records = []
-    trading_dates = [d for d in df_d.index if start_date <= d.date() <= end_date]
-    trading_dates.sort(reverse=True)
+    # 必須依【時間由舊到新】正向模擬持倉狀態機，最後再倒序呈現！
+    trading_dates_forward = [d for d in df_d.index if d.date() <= end_date]
+    trading_dates_forward.sort()
 
-    for dt in trading_dates:
+    sim_holding = False
+    all_computed_records = []
+
+    for dt in trading_dates_forward:
         loc = df_d.index.get_loc(dt)
         if loc < 35: continue
 
@@ -864,10 +889,7 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
 
         if is_buy_and_hold:
             is_high_momentum = False
-            if "SGOV" in ticker or "BIL" in ticker or "SHV" in ticker or "債" in name:
-                stock_profile = "💰 核心·收息存債"
-            else:
-                stock_profile = "🏛️ 核心·指數複利"
+            stock_profile = "💰 核心·收息存債" if ("SGOV" in ticker or "債" in name) else "🏛️ 核心·指數複利"
         else:
             is_high_momentum = (atr_pct >= 3.5)
             stock_profile = f"🚀 動能({atr_pct:.1f}%)" if is_high_momentum else f"🏛️ 穩健({atr_pct:.1f}%)"
@@ -880,6 +902,7 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
 
         is_broke_1y_low = (c_close <= l_1y_prev * 1.01) or (percentile_1y <= 10.0)
 
+        # 背離計算
         sub_c = close.iloc[:loc+1]
         sub_m = dif.iloc[:loc+1]
         sub_r = rsi.iloc[:loc+1]
@@ -916,17 +939,15 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
         date_short = dt.strftime('%m/%d')
 
         actions = []
-        if h_dual_bull:
-            actions.append(f"🔥雙重底背離({date_short})")
-        elif h_dual_bear:
-            actions.append(f"⚠️雙重頂背離({date_short})")
+        if h_dual_bull: actions.append(f"🔥雙重底背離({date_short})")
+        elif h_dual_bear: actions.append(f"⚠️雙重頂背離({date_short})")
 
-        if p_close <= p_ma20 and c_close > c_ma20:
-            actions.append(f"日線突破20MA ({date_short})")
-        if p_hist <= 0 and c_hist > 0:
-            actions.append(f"日MACD剛金叉 ({date_short})")
-        elif p_hist >= 0 and c_hist < 0:
-            actions.append(f"日MACD剛死叉 ({date_short})")
+        if p_close <= p_ma20 and c_close > c_ma20: actions.append(f"日線突破20MA ({date_short})")
+        if p_hist <= 0 and c_hist > 0: actions.append(f"日MACD剛金叉 ({date_short})")
+        elif p_hist >= 0 and c_hist < 0: actions.append(f"日MACD剛死叉 ({date_short})")
+
+        # 模擬持倉判斷
+        just_exited = (sim_holding and c_close < c_ma20)
 
         rec_text, detail_reason = evaluate_strategy_signal(
             c_close, p_close, c_vol, c_vol_ma5,
@@ -936,19 +957,30 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
             is_broke_1y_low, l_1y_prev, percentile_1y,
             weekly_dif_decreasing, weekly_ma_dead, weekly_macd_dead,
             is_weekly_bullish, is_weekly_bottom_forming,
-            h_dual_bull, h_dual_bear
+            h_dual_bull, h_dual_bear,
+            sim_holding, just_exited
         )
 
-        daily_records.append({
-            "日期": date_str,
-            "代碼": ticker,
-            "名稱": name,
-            "收盤價(漲跌)": price_display,
-            "股性模式": stock_profile,
-            "建議": rec_text,
-            "最新動態": " / ".join(actions) if actions else "-",
-            "詳細判定原因": detail_reason
-        })
+        # 動態更新持倉狀態機
+        if "走勢向上" in rec_text or "醞釀向上 (週大底+日發動)" in rec_text or "雙重底背離" in rec_text or "破底分批加碼" in rec_text:
+            sim_holding = True
+        elif "趨勢破位" in rec_text or "出清保本" in rec_text:
+            sim_holding = False
+
+        if start_date <= dt.date() <= end_date:
+            all_computed_records.append({
+                "日期": date_str,
+                "代碼": ticker,
+                "名稱": name,
+                "收盤價(漲跌)": price_display,
+                "股性模式": stock_profile,
+                "建議": rec_text,
+                "最新動態": " / ".join(actions) if actions else "-",
+                "詳細判定原因": detail_reason
+            })
+
+    # 依日期由新到舊倒序呈現
+    all_computed_records.reverse()
 
     ma5_deduction_info = None
     if len(close) >= 5:
@@ -969,7 +1001,7 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
             "stand_diff_pct": stand_diff_pct
         }
 
-    return pd.DataFrame(daily_records), ma5_deduction_info
+    return pd.DataFrame(all_computed_records), ma5_deduction_info
 
 # ==========================================
 # 深度分析綜合判斷結論生成函數
@@ -990,12 +1022,12 @@ def generate_summary_insight(df_records, ticker, name, ma5_info=None):
     
     if "底背離" in latest_rec:
         trend_status = "🔥 雙重底背離強勢反轉結構（最優質起漲點）"
-        action_advice = "股價創低(位階≤30%)但 MACD 與 RSI 同步墊高，空方動能耗盡，大轉折向上概率極高，可積極分批布局加碼！"
+        action_advice = "股價創低但 MACD 與 RSI 同步墊高，空方動能耗盡，大轉折向上概率極高，可積極分批布局加碼！"
         box_color = "#e8f5e9"
         border_color = "#81c784"
     elif "頂背離" in latest_rec:
         trend_status = "⚠️ 雙重頂背離高檔見頂結構（頭部風險）"
-        action_advice = "股價創新高(位階≥70%)但 MACD 與 RSI 雙雙衰退，量價背離明顯，多頭無力推升，建議果斷減碼 50% 鎖利！"
+        action_advice = "股價創新高但 MACD 與 RSI 雙雙衰退，量價背離明顯，多頭無力推升，建議果斷減碼 50% 鎖利！"
         box_color = "#fff3e0"
         border_color = "#ffb74d"
     elif "長期持有" in latest_rec:
@@ -1018,11 +1050,16 @@ def generate_summary_insight(df_records, ticker, name, ma5_info=None):
         action_advice = "股價跌破日 10MA 或日 MACD 翻綠，短期動能衰退，建議立即減碼 50% 鎖住獲利，其餘部位以 20MA 月線作最後防線。"
         box_color = "#fff3e0"
         border_color = "#ffb74d"
-    elif "出清保本" in latest_rec or "賣出" in latest_rec:
+    elif "趨勢破位" in latest_rec or "出清保本" in latest_rec:
         trend_status = "🔴 趨勢破位出清（跌破 20MA 月線防線）"
         action_advice = "實質跌破 20MA 月線，多頭架構結束。空手者切勿貿然進場接刀；持股者應嚴格落實紀律，出清剩餘部位保本。"
         box_color = "#ffebee"
         border_color = "#ef9a9a"
+    elif "空手觀望" in latest_rec:
+        trend_status = "⚪ 空手觀望結構（無部位耐心等待）"
+        action_advice = "股價處於月線下方空頭架構，手上無持股。保留現金銀彈，耐心等待股價實質站回月線或出現大底背離再行進場。"
+        box_color = "#f5f5f5"
+        border_color = "#e0e0e0"
     elif "負乖離超賣" in latest_rec:
         trend_status = "🟡 極端負乖離超賣區（等待技術反彈）"
         action_advice = "股價跌破布林下軌且 RSI 處於嚴重超賣，隨時醞釀技術性急彈，切勿在此刻恐慌殺低在阿呆谷，等待回測 10MA 再行減碼。"
@@ -1079,14 +1116,13 @@ def style_dataframe(df):
             if '雙重底背離' in val: return 'color: #1b5e20; font-weight: bold; background-color: #a5d6a7;'
             elif '雙重頂背離' in val: return 'color: #b71c1c; font-weight: bold; background-color: #ffcdd2;'
             elif '敏捷減碼' in val: return 'color: #e65100; font-weight: bold; background-color: #ffe0b2;'
-            elif '出清保本' in val: return 'color: #b71c1c; font-weight: bold; background-color: #ffcdd2;'
+            elif '趨勢破位' in val or '出清保本' in val: return 'color: #b71c1c; font-weight: bold; background-color: #ffcdd2;'
+            elif '空手觀望' in val: return 'color: #616161; font-weight: bold; background-color: #eeeeee;'
             elif '破底分批加碼' in val: return 'color: #1b5e20; font-weight: bold; background-color: #c8e6c9;'
             elif '走勢向上' in val: return 'color: #2e7d32; font-weight: bold; background-color: #e8f5e9;'
             elif '破底打底觀察' in val: return 'color: #b78103; font-weight: bold; background-color: #fff9c4;'
             elif '長期持有' in val: return 'color: #0d47a1; font-weight: bold; background-color: #e3f2fd;'
-            elif '打底' in val: return 'color: #1565c0; font-weight: bold; background-color: #e3f2fd;'
             elif '週大底+日發動' in val: return 'color: #2e7d32; font-weight: bold; background-color: #e8f5e9;'
-            elif '週大底打底' in val: return 'color: #1565c0; font-weight: bold; background-color: #e3f2fd;'
             elif '負乖離超賣' in val: return 'color: #f57f17; font-weight: bold; background-color: #fffde7;'
         return ''
         
@@ -1135,7 +1171,7 @@ def get_chart_data(ticker, interval, period):
     return df
 
 # ==========================================
-# 🎯 頁面分頁宣告 (最先宣告，保證正常渲染)
+# 🎯 頁面分頁宣告
 # ==========================================
 tab_dashboard, tab_rules, tab_settings, tab_war_room, tab_deep_dive = st.tabs([
     "📊 看盤儀表板", "📖 策略判斷原則", "⚙️ 自選股編輯", "⚔️ 買賣戰情室", "🔬 深度分析"
@@ -1229,7 +1265,7 @@ with tab_dashboard:
         
         filter_opt = st.radio(
             "🔍 狀態篩選：", 
-            ["👀 顯示全部", "🔥 雙重底背離", "🟢 破底加碼", "🟢 只看走勢向上", "💡 醞釀向上", "🔵 長期持有", "🟡 歷史打底", "🟠 敏捷減碼(破10MA)", "🔴 破位出清(破20MA)", "🟡 負乖離超賣", "⚡ 剛發生交叉"], 
+            ["👀 顯示全部", "🔥 雙重底背離", "🟢 破底加碼", "🟢 只看走勢向上", "💡 醞釀向上", "🔵 長期持有", "🟡 歷史打底", "🟠 敏捷減碼(破10MA)", "🔴 趨勢破位(出清)", "⚪ 空手觀望", "🟡 負乖離超賣", "⚡ 剛發生交叉"], 
             index=0,
             horizontal=True
         )
@@ -1249,8 +1285,10 @@ with tab_dashboard:
             filtered_df = filtered_df[filtered_df['建議'].str.contains("歷史低檔打底", na=False)]
         elif filter_opt == "🟠 敏捷減碼(破10MA)":
             filtered_df = filtered_df[filtered_df['建議'].str.contains("減碼", na=False)]
-        elif filter_opt == "🔴 破位出清(破20MA)":
-            filtered_df = filtered_df[filtered_df['建議'].str.contains("出清|破位", na=False)]
+        elif filter_opt == "🔴 趨勢破位(出清)":
+            filtered_df = filtered_df[filtered_df['建議'].str.contains("破位|出清", na=False)]
+        elif filter_opt == "⚪ 空手觀望":
+            filtered_df = filtered_df[filtered_df['建議'].str.contains("空手觀望", na=False)]
         elif filter_opt == "🟡 負乖離超賣":
             filtered_df = filtered_df[filtered_df['建議'].str.contains("負乖離超賣", na=False)]
         elif filter_opt == "⚡ 剛發生交叉":
@@ -1429,7 +1467,7 @@ with tab_rules:
     
     #### 1️⃣ 第一梯隊：極限轉折與左側防護區（最高優先攔截）
     * **🔥 雙重底背離：`🟢 雙重底背離 (爆發起漲點)`**
-        * **觸發條件**：價格創波段新低(位階≤30%)，但 **MACD(DIF) 與 RSI 同步低點抬高**。
+        * **觸發條件**：價格創波段新低，但 **MACD(DIF) 與 RSI 同步低點抬高**。
         * **實戰動作**：空方推殺力竭，主力洗盤誘空，爆發強彈機率極高，啟動加碼佈局。
     * **🎯 破底加碼雷達：`🟢 破底分批加碼` (方案 A 嚴格確認型)**
         * **觸發條件**：跌破近 1 年低點或極限低檔（≤ 10%），且收盤價站上日 5MA，同時日 MACD 或 5MA 金叉。
@@ -1440,12 +1478,14 @@ with tab_rules:
     * **🏛️ 核心資產：`🔵 長期持有`**（SGOV、0050、VOO、QQQM 等）。
 
     #### 3️⃣ 第三梯隊：右側常規多頭波段（標準進場兩步曲）
-    * **第一步（找獵物）：`💡 醞釀向上`**（週線大底即將完成；若週線死叉需日線連續 2 天站穩 20MA）。
-    * **第二步（扣板機）：`🟢 走勢向上`**（長短線共振翻多站穩均線且放量）。
+    * **第一步（找獵物）：`💡 醞釀向上`**（週線大底即將完成；需連續 2 天站穩 20MA）。
+    * **第二步（扣板機）：`🟢 走勢向上`**（長短線共振翻多連續站穩均線且放量）。
 
-    #### 4️⃣ 第四梯隊：高動能階梯式敏捷停利與防守管控
+    #### 4️⃣ 第四梯隊：高動能階梯式敏捷停利與防守管控 (持倉狀態機)
     * **第一道敏捷防線：`🟠 敏捷減碼 50% (跌破10MA)`**：收盤跌破日 10MA 或日 MACD 翻綠，立即收割 50% 獲利落袋為安。
-    * **第二道終極防線：`🔴 趨勢破位 (出清保本)`**：實質跌破日 20MA 月線，多頭結構瓦解，剩餘部位全數出清，杜絕週線滯後。
+    * **第二道終極防線：`🔴 趨勢破位 (出清保本)`**：實質跌破日 20MA 月線，多頭結構瓦解，**剩餘部位一次出清，絕不拖延！**
+    * **空手保護：`⚪ 空手觀望 (破線無持股)`**：出清後股價仍在月線下，**手上無部位，冷靜觀望，不再天天重複恐嚇出清！**
+    * **防假突破過濾：`🟡 突破月線觀察 (待站穩第2日)`**：單日長紅突破月線不追高，待第 2 日確認站穩才准買進。
     * **低檔超賣保護網：`🟡 負乖離超賣 (暫緩追殺等待反彈)`**：股價跌破布林下軌（LCL）或 RSI ≤ 32，全面壓制賣出信號，嚴禁殺在阿呆谷。
     """)
 
@@ -1533,7 +1573,8 @@ with tab_war_room:
         df_up = display_df[display_df['建議'].str.contains("醞釀向上", na=False)].reset_index(drop=True)
         
         df_trim_10ma = display_df[display_df['建議'].str.contains("敏捷減碼", na=False)].reset_index(drop=True)
-        df_exit_20ma = display_df[display_df['建議'].str.contains("出清保本", na=False)].reset_index(drop=True)
+        df_exit_20ma = display_df[display_df['建議'].str.contains("趨勢破位", na=False)].reset_index(drop=True)
+        df_watch_empty = display_df[display_df['建議'].str.contains("空手觀望|突破月線觀察", na=False)].reset_index(drop=True)
         df_defense = display_df[display_df['建議'].str.contains("負乖離超賣", na=False)].reset_index(drop=True)
         
         df_hold_core = display_df[display_df['建議'].str.contains("長期持有", na=False)].reset_index(drop=True)
@@ -1622,7 +1663,7 @@ with tab_war_room:
 
         # 🔴 趨勢破位 (跌破 20MA 出清)
         if not df_exit_20ma.empty:
-            render_section_with_export(f"🔴 第二道終極防線（破月線全數出清）：🔴 出清保本 ({len(df_exit_20ma)})", df_exit_20ma, "出清保本")
+            render_section_with_export(f"🔴 第二道終極防線（破月線出清保本）：🔴 趨勢破位 ({len(df_exit_20ma)})", df_exit_20ma, "趨勢破位")
             ev_exit = st.dataframe(
                 style_dataframe(df_exit_20ma.drop(columns=['股性類別'])), use_container_width=True,
                 on_select="rerun", selection_mode="single-row", key="war_exit",
@@ -1630,6 +1671,17 @@ with tab_war_room:
             )
             if ev_exit.selection.rows:
                 st.session_state.selected_ticker = df_exit_20ma.iloc[ev_exit.selection.rows[0]]['代碼']
+
+        # ⚪ 空手觀望
+        if not df_watch_empty.empty:
+            render_section_with_export(f"⚪ 空手冷靜區（無部位不接刀 / 待站穩）：⚪ 空手觀望 ({len(df_watch_empty)})", df_watch_empty, "空手觀望")
+            ev_we = st.dataframe(
+                style_dataframe(df_watch_empty.drop(columns=['股性類別'])), use_container_width=True,
+                on_select="rerun", selection_mode="single-row", key="war_we",
+                column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
+            )
+            if ev_we.selection.rows:
+                st.session_state.selected_ticker = df_watch_empty.iloc[ev_we.selection.rows[0]]['代碼']
 
         # 🟡 低檔超賣禁止追殺
         if not df_defense.empty:
