@@ -165,6 +165,7 @@ def parse_watchlist(text):
 temp_ticker = st.session_state.search_ticker.strip().upper()
 temp_name = st.session_state.search_name.strip()
 
+
 # ==========================================
 # LINE Messaging API 推播
 # ==========================================
@@ -384,7 +385,7 @@ def analyze_signals_comprehensive(watchlist):
             elif "續抱" in row['建議']: return 2
             elif "長期持有" in row['建議']: return 3
             elif "賣出" in row['建議']: return 4
-            elif "假金叉" in row['建議']: return 5
+            elif "假金叉" in row['建議'] or "假死叉" in row['建議']: return 5
             elif "空手" in row['建議']: return 6
             else: return 7
         df_results['SortRank'] = df_results.apply(get_sort_rank, axis=1)
@@ -460,7 +461,7 @@ def generate_summary_insight(df_records, ticker, name, ma5_info=None):
     
     if "買進" in latest_rec or "續抱" in latest_rec: trend_status, box_color, border_color = "🟢 多頭趨勢（持股續抱）", "#e8f5e9", "#81c784"
     elif "賣出" in latest_rec: trend_status, box_color, border_color = "🔴 空頭趨勢（停利/停損出清）", "#ffebee", "#ef9a9a"
-    elif "假金叉" in latest_rec: trend_status, box_color, border_color = "⚠️ 逃命波防禦（空手觀望不接刀）", "#fff3e0", "#ffb74d"
+    elif "假金叉" in latest_rec or "假死叉" in latest_rec: trend_status, box_color, border_color = "⚠️ 趨勢防禦（洗盤防護中）", "#fff3e0", "#ffb74d"
     else: trend_status, box_color, border_color = "⚪ 空頭架構（空手等待）", "#f5f5f5", "#e0e0e0"
 
     return "".join([
