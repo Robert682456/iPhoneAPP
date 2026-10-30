@@ -261,10 +261,10 @@ hide_st_style = """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
 # ==========================================
-# 🎯 核心決策判斷引擎 (完善 MACD 綠柱時的持股狀態)
+# 🎯 核心決策判斷引擎：MACD + 雙向洗盤防禦 + KD提前預警 + DIF 標示
 # ==========================================
 def evaluate_strategy_signal(
-    curr_close, prev_close, c_ma10, c_ma20, c_hist, p_hist, c_k, c_d, p_k, p_d, is_buy_and_hold, was_holding=True
+    curr_close, prev_close, c_ma10, c_ma20, c_hist, c_dif, p_dif, c_k, c_d, p_k, p_d, is_buy_and_hold, was_holding=True
 ):
     if is_buy_and_hold: 
         return "🔵 長期持有 (核心被動)", "【免出場資產】定期定額或逢低續抱，不受短期波動影響。"
@@ -273,52 +273,51 @@ def evaluate_strategy_signal(
     is_macd_bearish = (c_hist < 0)
     is_above_20ma = (curr_close > c_ma20)
     
-    # 均線防護：如果股價沒有實質跌破 10MA(容忍1.5%) 或 當天為收紅/平盤，則視為防守成功
+    # 決定 DIF 顯示標籤 (值與方向箭頭)
+    dif_arrow = "↗" if c_dif > p_dif else "↘"
+    dif_tag = f"[DIF: {c_dif:.2f} {dif_arrow}]"
+
+    # 洗盤防禦濾網
     is_defending_10ma = (curr_close > c_ma10 * 0.985) or (curr_close >= prev_close)
 
+    # KD 提前預警條件
     is_kd_golden_cross = (p_k <= p_d) and (c_k > c_d)
     is_kd_low_zone = (c_k < 50) and (c_d < 50)
     is_above_10ma = (curr_close > c_ma10)
 
     # ---------------------------------------------------------
-    # A. MACD 紅柱 (多方掌控)
+    # A. 買進 / 續抱條件 (MACD 紅柱 且 在 20MA 之上)
     # ---------------------------------------------------------
-    if is_macd_bullish:
-        if is_above_20ma:
-            if was_holding: 
-                return "🟢 波段續抱 (多頭格局)", f"日 MACD 維持紅柱且股價在 20MA({c_ma20:.2f}) 之上，安全抱牢。"
-            else: 
-                return "🟢 買進 (MACD金叉+站上月線)", f"日 MACD 翻紅且股價成功站上 20MA({c_ma20:.2f})，多頭啟動，順勢買進。"
-        else:
-            if was_holding: 
-                return "🔴 賣出 (跌破月線)", f"股價已實質跌破 20MA({c_ma20:.2f})，防守紀律賣出。"
-            else: 
-                return "⚠️ 假金叉排除 (空手觀望)", f"【逃命波陷阱】MACD 雖收斂翻紅，但受制於 20MA({c_ma20:.2f}) 之下，弱勢反彈不接刀！"
+    if is_macd_bullish and is_above_20ma:
+        if was_holding: 
+            return "🟢 波段續抱 (多頭格局)", f"{dif_tag} 日 MACD 維持紅柱且股價在 20MA({c_ma20:.2f}) 之上，安全抱牢。"
+        else: 
+            return "🟢 買進 (MACD金叉+站上月線)", f"{dif_tag} 日 MACD 翻紅且股價成功站上 20MA({c_ma20:.2f})，多頭啟動，順勢買進。"
 
     # ---------------------------------------------------------
-    # B. MACD 綠柱 (空方掌控 或 正在醞釀)
+    # B. 假金叉防禦 - 逃命波濾網 (MACD 紅柱，但股價被壓在 20MA 之下)
+    # ---------------------------------------------------------
+    elif is_macd_bullish and not is_above_20ma:
+        if was_holding: 
+            return "🔴 賣出 (跌破月線)", f"{dif_tag} 股價已實質跌破 20MA({c_ma20:.2f})，防守紀律賣出。"
+        else: 
+            return "⚠️ 假金叉排除 (空手觀望)", f"{dif_tag} 【逃命波陷阱】日 MACD 雖收斂翻紅，但股價受制於下彎的 20MA({c_ma20:.2f}) 之下，判定為弱勢反彈，維持空手不接刀！"
+
+    # ---------------------------------------------------------
+    # C. MACD 死叉 (綠柱) 處理與【提前預警】、【高檔洗盤防禦】
     # ---------------------------------------------------------
     elif is_macd_bearish:
         if was_holding:
-            # 💡 【核心修復：當我們處於持股狀態，但 MACD 是綠柱時】
-            if is_defending_10ma:
-                if p_hist > 0:
-                    # 情況1：MACD 昨天是紅的，今天剛死叉
-                    return "🟢 震盪續抱 (假死叉防禦)", f"【洗盤防禦】MACD 剛翻綠，但未實質破線或呈上漲態勢，判定為高檔震盪洗盤，堅定抱牢！"
-                else:
-                    # 情況2：MACD 一直都是綠的 (代表是先前因 KD 提前試單進場的)
-                    return "🟢 震盪續抱 (均線防守中)", f"【守穩防線】MACD 雖為綠柱，但股價仍強勢守穩 10MA({c_ma10:.2f}) 防守線，持股續抱等待動能轉強。"
+            if is_above_20ma and is_defending_10ma:
+                return "🟢 震盪續抱 (假死叉防禦)", f"{dif_tag} 【洗盤防禦】MACD 雖翻綠，但當日未實質破線或呈上漲態勢，判定為高檔震盪洗盤，堅定抱牢！"
             else:
-                if p_hist > 0:
-                    return "🔴 賣出 (MACD死叉+破線)", f"MACD 剛死叉且股價實質跌破防守均線，動能轉空，果斷賣出停利/停損。"
-                else:
-                    return "🔴 賣出 (跌破10MA防線)", f"股價實質跌破 10MA({c_ma10:.2f})，動能潰散，停利/停損出場。"
+                return "🔴 賣出 (MACD死叉+破線)", f"{dif_tag} MACD 死叉且股價實質跌破防守均線，動能轉空，果斷賣出停利/停損。"
         else:
-            # KD 提前預警，抓起漲第一天
+            # 💡 KD 提前預警，抓起漲第一天
             if is_kd_golden_cross and is_kd_low_zone and is_above_10ma:
-                return "💡 醞釀買進 (KD金叉+站上10MA)", f"【提前預警】MACD 雖未金叉，但低檔 KD 已率先轉強且股價站上 10MA，可準備小量試單佈局！"
+                return "💡 醞釀買進 (KD金叉+站上10MA)", f"{dif_tag} 【提前預警】MACD 雖未金叉，但低檔 KD 已率先轉強且股價站上 10MA({c_ma10:.2f})，動能收斂，可準備小量試單佈局！"
             else:
-                return "⚪ 空手觀望 (空頭格局)", "日 MACD 維持綠柱空頭排列，保留現金，耐心等待買點。"
+                return "⚪ 空手觀望 (空頭格局)", f"{dif_tag} 日 MACD 維持綠柱空頭排列，保留現金，耐心等待買點。"
 
     return "⚪ 狀態未明", "無明確訊號。"
 
@@ -381,6 +380,7 @@ def analyze_signals_comprehensive(watchlist):
             curr_ma10_d = ma10_d.iloc[-1]
             curr_ma20_d, prev_ma20_d = ma20_d.iloc[-1], ma20_d.iloc[-2]
             curr_hist_d, prev_hist_d = hist_d.iloc[-1], hist_d.iloc[-2]
+            c_dif_d, p_dif_d = dif_d.iloc[-1], dif_d.iloc[-2]
             c_k, c_d = k_d.iloc[-1], d_d.iloc[-1]
             p_k, p_d = k_d.iloc[-2], d_d.iloc[-2]
 
@@ -396,7 +396,7 @@ def analyze_signals_comprehensive(watchlist):
             elif p_k <= p_d and c_k > c_d: actions.append(f"日KD剛金叉 ({last_date_str})")
 
             rec_text, detail_reason = evaluate_strategy_signal(
-                curr_close, prev_close, curr_ma10_d, curr_ma20_d, curr_hist_d, prev_hist_d, c_k, c_d, p_k, p_d, is_buy_and_hold, was_holding=was_holding_prev
+                curr_close, prev_close, curr_ma10_d, curr_ma20_d, curr_hist_d, c_dif_d, p_dif_d, c_k, c_d, p_k, p_d, is_buy_and_hold, was_holding=was_holding_prev
             )
 
             results.append({"代碼": ticker, "名稱": name, "收盤價(漲跌)": price_display, "股性模式": stock_profile, "股性類別": stock_category, "建議": rec_text, "最新動態": " / ".join(actions) if actions else "-", "詳細判定原因": detail_reason, "Yahoo股市": f"https://finance.yahoo.com/quote/{ticker}"})
@@ -458,6 +458,7 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
         c_ma10 = ma10.iloc[loc]
         c_ma20 = ma20.iloc[loc]
         c_hist, p_hist = hist.iloc[loc], hist.iloc[loc - 1]
+        c_dif, p_dif = dif.iloc[loc], dif.iloc[loc - 1]
         c_k, c_d = k.iloc[loc], d.iloc[loc]
         p_k, p_d = k.iloc[loc-1], d.iloc[loc-1]
         
@@ -477,7 +478,7 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
         elif p_k <= p_d and c_k > c_d: actions.append(f"日KD剛金叉 ({date_short})")
 
         rec_text, detail_reason = evaluate_strategy_signal(
-            c_close, p_close, c_ma10, c_ma20, c_hist, p_hist, c_k, c_d, p_k, p_d, is_buy_and_hold, was_holding=sim_holding
+            c_close, p_close, c_ma10, c_ma20, c_hist, c_dif, p_dif, c_k, c_d, p_k, p_d, is_buy_and_hold, was_holding=sim_holding
         )
 
         if "買進" in rec_text or "續抱" in rec_text: sim_holding = True
