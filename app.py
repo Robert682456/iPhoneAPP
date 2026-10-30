@@ -160,38 +160,7 @@ def parse_watchlist(text):
     return watchlist
 
 # ==========================================
-# 🎯 雙重共振背離判定
-# ==========================================
-def detect_dual_divergence(close_series, macd_dif_series, rsi_series, order=4, lookback=45):
-    if len(close_series) < lookback: return False, False
-    c = close_series.iloc[-lookback:].values
-    m = macd_dif_series.iloc[-lookback:].values
-    r = rsi_series.iloc[-lookback:].values
-    curr_p = c[-1]
-    w_min = np.min(c)
-    w_max = np.max(c)
-    allow_bear_div = (curr_p >= w_max * 0.96)
-    allow_bull_div = (curr_p <= w_min * 1.04)
-
-    troughs, peaks = [], []
-    for i in range(order, len(c) - order):
-        if c[i] == min(c[i - order:i + order + 1]): troughs.append(i)
-        if c[i] == max(c[i - order:i + order + 1]): peaks.append(i)
-
-    is_dual_bull_div, is_dual_bear_div = False, False
-    if allow_bull_div and len(troughs) >= 2:
-        i1, i2 = troughs[-2], troughs[-1]
-        if (len(c) - 1 - i2 <= 6) and (c[i2] < c[i1] * 0.995) and (m[i2] > m[i1]) and (r[i2] > r[i1]):
-            is_dual_bull_div = True
-    if allow_bear_div and len(peaks) >= 2:
-        p1, p2 = peaks[-2], peaks[-1]
-        if (len(c) - 1 - p2 <= 6) and (c[p2] > c[p1] * 1.005) and (m[p2] < m[p1]) and (r[p2] < r[p1]):
-            is_dual_bear_div = True
-
-    return is_dual_bull_div, is_dual_bear_div
-
-# ==========================================
-# LINE Messaging API 推播與狀態快取
+# LINE Messaging API 推播
 # ==========================================
 def send_line_message(token, user_id, message_text):
     if not token or not user_id: return False, "缺少 Token 或 User ID"
@@ -223,19 +192,19 @@ def build_morning_report(df_results, market_trend, group_name):
     today_str = now_tw.strftime("%Y-%m-%d")
     m_status = market_trend['status'] if market_trend else "維持觀察"
     m_advice = market_trend['advice'] if market_trend else "無大盤資料"
-    up_stocks = df_results[df_results['建議'].str.contains("買進|走勢向上|加碼", na=False)] if not df_results.empty else pd.DataFrame()
+    up_stocks = df_results[df_results['建議'].str.contains("買進", na=False)] if not df_results.empty else pd.DataFrame()
     items_text = [f"• {row['代碼']} {row['名稱']}: {row['建議']}" for _, row in up_stocks.head(6).iterrows()] if not up_stocks.empty else ["• 目前無多頭買進標的，多看少做。"]
     return f"🌅【雙指標系統 - 每日盤前早報】\n━━━━━━━━━━━━━━\n📅 日期：{today_str} (08:45 早報)\n📁 組合：{group_name}\n\n🧭 大盤資金水位：\n狀態：{m_status}\n指引：{m_advice}\n\n⭐ 盤前多方焦點標的：\n{chr(10).join(items_text)}\n━━━━━━━━━━━━━━\n💡 提醒：若有觸發日MACD金叉，系統將於盤中即時推播。"
 
 def build_evening_report(df_results, group_name):
     now_tw = get_tw_now()
     today_str = now_tw.strftime("%Y-%m-%d")
-    buy_cnt = len(df_results[df_results['建議'].str.contains("買進|走勢向上", na=False)]) if not df_results.empty else 0
-    sell_cnt = len(df_results[df_results['建議'].str.contains("賣出|逃命", na=False)]) if not df_results.empty else 0
+    buy_cnt = len(df_results[df_results['建議'].str.contains("買進", na=False)]) if not df_results.empty else 0
+    sell_cnt = len(df_results[df_results['建議'].str.contains("賣出", na=False)]) if not df_results.empty else 0
     hold_cnt = len(df_results[df_results['建議'].str.contains("續抱|核心", na=False)]) if not df_results.empty else 0
-    empty_cnt = len(df_results[df_results['建議'].str.contains("空手", na=False)]) if not df_results.empty else 0
+    empty_cnt = len(df_results[df_results['建議'].str.contains("空手|假金叉", na=False)]) if not df_results.empty else 0
     action_items = [f"• {row['代碼']} {row['名稱']}: {row['最新動態']} ({row['建議']})" for _, row in df_results.iterrows() if row['最新動態'] != "-"] if not df_results.empty else ["• 今日無新增 MACD 交叉訊號。"]
-    return f"🌆【雙指標系統 - 每日盤後總結】\n━━━━━━━━━━━━━━\n📅 日期：{today_str} (13:45 盤後)\n📁 組合：{group_name}\n\n📊 盤後狀態分佈：\n🟢 買進建倉/向上：{buy_cnt} 檔\n🟢 多頭持股續抱：{hold_cnt} 檔\n🔴 賣出/逃命防守：{sell_cnt} 檔\n⚪ 空手觀望：{empty_cnt} 檔\n\n⚡ 今日關鍵動態事件：\n{chr(10).join(action_items[:6])}\n━━━━━━━━━━━━━━\n📋 完整日誌可至『深度分析』匯出 CSV 進行盤後覆盤。"
+    return f"🌆【雙指標系統 - 每日盤後總結】\n━━━━━━━━━━━━━━\n📅 日期：{today_str} (13:45 盤後)\n📁 組合：{group_name}\n\n📊 盤後狀態分佈：\n🟢 買進建倉：{buy_cnt} 檔\n🟢 多頭持股續抱：{hold_cnt} 檔\n🔴 賣出停損/停利：{sell_cnt} 檔\n⚪ 空手觀望：{empty_cnt} 檔\n\n⚡ 今日關鍵動態事件：\n{chr(10).join(action_items[:6])}\n━━━━━━━━━━━━━━\n📋 完整日誌可至『深度分析』匯出 CSV 進行盤後覆盤。"
 
 def check_and_notify_signals(df_results, market_trend, group_name):
     token = st.session_state.line_token_input.strip()
@@ -251,11 +220,12 @@ def check_and_notify_signals(df_results, market_trend, group_name):
             ticker, name, curr_rec, actions, price_info, reason = row['代碼'], row['名稱'], row['建議'], row['最新動態'], row['收盤價(漲跌)'], row['詳細判定原因']
             item_cache = cache.get(ticker, {"last_rec": "", "last_gc_date": "", "last_div_date": ""})
             prev_rec = item_cache.get("last_rec", "")
+            
             if "買進" in curr_rec and "買進" not in prev_rec:
                 send_line_message(token, user_id, f"🟢【雙指標系統 - 買進警報】\n標的：{ticker} {name}\n現價：{price_info}\n原因：{reason}\n時間：{now_time_str}")
             elif "賣出" in curr_rec and "賣出" not in prev_rec:
                 send_line_message(token, user_id, f"🔴【雙指標系統 - 賣出警報】\n標的：{ticker} {name}\n現價：{price_info}\n原因：{reason}\n時間：{now_time_str}")
-            elif "逃命" in curr_rec and "逃命" not in prev_rec:
+            elif "假金叉" in curr_rec and "假金叉" not in prev_rec:
                 send_line_message(token, user_id, f"⚠️【雙指標系統 - 假金叉防禦】\n標的：{ticker} {name}\n現價：{price_info}\n原因：{reason}\n時間：{now_time_str}")
             item_cache["last_rec"] = curr_rec
             cache[ticker] = item_cache
@@ -282,12 +252,7 @@ st.markdown(hide_st_style, unsafe_allow_html=True)
 # 🎯 核心決策判斷引擎：MACD 搭配 20MA 假金叉濾網
 # ==========================================
 def evaluate_strategy_signal(
-    curr_close, prev_close, c_vol, c_vol_ma5,
-    c_ma5, c_ma10, c_ma20, p_close, p_ma20,
-    c_hist, p_hist, c_rsi, c_lcl, c_ucl, c_adx,
-    is_high_momentum, is_buy_and_hold, stock_profile,
-    is_broke_1y_low, low_1y_prev, percentile_1y,
-    was_holding=True
+    curr_close, c_ma20, c_hist, is_buy_and_hold, was_holding=True
 ):
     if is_buy_and_hold: return "🔵 長期持有 (核心被動)", "【免出場資產】定期定額或逢低續抱，不受短期波動影響。"
 
@@ -308,7 +273,6 @@ def evaluate_strategy_signal(
         else: return "⚪ 空手觀望 (空頭格局)", "日 MACD 維持綠柱空頭排列，保留現金，耐心等待買點。"
 
     return "⚪ 狀態未明", "無明確訊號。"
-
 
 @st.cache_data(ttl=300)
 def get_market_trend(ticker):
@@ -341,8 +305,7 @@ def analyze_signals_comprehensive(watchlist):
             close_d = df_d['Close'][ticker] if isinstance(df_d.columns, pd.MultiIndex) else df_d['Close']
             high_d = df_d['High'][ticker] if isinstance(df_d.columns, pd.MultiIndex) else df_d['High']
             low_d = df_d['Low'][ticker] if isinstance(df_d.columns, pd.MultiIndex) else df_d['Low']
-            volume_d = df_d['Volume'][ticker] if isinstance(df_d.columns, pd.MultiIndex) else df_d['Volume']
-            close_d, high_d, low_d, volume_d = close_d.dropna(), high_d.dropna(), low_d.dropna(), volume_d.dropna()
+            close_d, high_d, low_d = close_d.dropna(), high_d.dropna(), low_d.dropna()
 
             atr14 = (high_d - low_d).rolling(14).mean().iloc[-1]
             curr_close, prev_close = close_d.iloc[-1], close_d.iloc[-2]
@@ -350,42 +313,19 @@ def analyze_signals_comprehensive(watchlist):
 
             is_buy_and_hold = (ticker in BUY_AND_HOLD_LIST) or ("美債" in name and "0-3" in name)
             if is_buy_and_hold:
-                is_high_momentum = False
-                stock_profile = "💰 核心·收息存債" if ("SGOV" in ticker or "債" in name) else "🏛️ 核心·指數複利"
-                stock_category = "穩健型"
+                stock_profile, stock_category = ("💰 核心·收息存債" if ("SGOV" in ticker or "債" in name) else "🏛️ 核心·指數複利"), "穩健型"
             else:
-                is_high_momentum = (atr_pct >= 3.5)
-                stock_profile = f"🚀 動能({atr_pct:.1f}%)" if is_high_momentum else f"🏛️ 穩健({atr_pct:.1f}%)"
-                stock_category = "高動能型" if is_high_momentum else "穩健型"
+                stock_profile, stock_category = (f"🚀 動能({atr_pct:.1f}%)" if (atr_pct >= 3.5) else f"🏛️ 穩健({atr_pct:.1f}%)"), ("高動能型" if (atr_pct >= 3.5) else "穩健型")
 
-            high_1y = high_d.tail(250).max()
-            low_1y_prev = low_d.iloc[:-1].tail(249).min() if len(low_d) >= 250 else low_d.iloc[:-1].min()
-            low_1y = min(low_1y_prev, low_d.iloc[-1])
-            percentile_1y = ((curr_close - low_1y) / (high_1y - low_1y)) * 100 if high_1y > low_1y else 50.0
-            is_broke_1y_low = (curr_close <= low_1y_prev * 1.01) or (percentile_1y <= 10.0)
-
-            ma5_d, ma10_d, ma20_d = close_d.rolling(5).mean(), close_d.rolling(10).mean(), close_d.rolling(20).mean()
-            vol_ma5_d = volume_d.rolling(5).mean()
+            ma20_d = close_d.rolling(20).mean()
             ema12_d, ema26_d = close_d.ewm(span=12, adjust=False).mean(), close_d.ewm(span=26, adjust=False).mean()
             dif_d = ema12_d - ema26_d
             hist_d = dif_d - dif_d.ewm(span=9, adjust=False).mean()
             
-            delta_d = close_d.diff()
-            g_d = delta_d.clip(lower=0).ewm(com=13, adjust=False).mean()
-            l_d = (-1 * delta_d.clip(upper=0)).ewm(com=13, adjust=False).mean()
-            rsi_d = 100 - (100 / (1 + (g_d / l_d)))
-            curr_rsi_d = rsi_d.iloc[-1]
-            
-            std20_d = close_d.rolling(20).std()
-            curr_ucl_d = (ma20_d + 2 * std20_d).iloc[-1]
-            curr_lcl_d = (ma20_d - 2 * std20_d).iloc[-1]
-            
-            curr_ma5_d, curr_ma10_d, curr_ma20_d = ma5_d.iloc[-1], ma10_d.iloc[-1], ma20_d.iloc[-1]
-            prev_ma20_d = ma20_d.iloc[-2]
+            curr_ma20_d, prev_ma20_d = ma20_d.iloc[-1], ma20_d.iloc[-2]
             curr_hist_d, prev_hist_d = hist_d.iloc[-1], hist_d.iloc[-2]
-            curr_vol_d, curr_vol_ma5_d = volume_d.iloc[-1], vol_ma5_d.iloc[-1]
 
-            was_holding_prev = (prev_close >= prev_ma20_d) and (prev_hist_d > 0)
+            was_holding_prev = (prev_close > prev_ma20_d) and (prev_hist_d > 0)
 
             change_pct = ((curr_close - prev_close) / prev_close) * 100
             price_display = f"🔺 {curr_close:.2f} (+{change_pct:.2f}%)" if change_pct > 0 else f"🔻 {curr_close:.2f} ({change_pct:.2f}%)" if change_pct < 0 else f"➖ {curr_close:.2f} (0.00%)"
@@ -396,11 +336,7 @@ def analyze_signals_comprehensive(watchlist):
             elif prev_hist_d >= 0 and curr_hist_d < 0: actions.append(f"日MACD剛死叉 ({last_date_str})")
 
             rec_text, detail_reason = evaluate_strategy_signal(
-                curr_close, prev_close, curr_vol_d, curr_vol_ma5_d,
-                curr_ma5_d, curr_ma10_d, curr_ma20_d, prev_close, prev_ma20_d,
-                curr_hist_d, prev_hist_d, curr_rsi_d, curr_lcl_d, curr_ucl_d, 15.0,
-                is_high_momentum, is_buy_and_hold, stock_profile,
-                is_broke_1y_low, low_1y_prev, percentile_1y, was_holding=was_holding_prev
+                curr_close, curr_ma20_d, curr_hist_d, is_buy_and_hold, was_holding=was_holding_prev
             )
 
             results.append({"代碼": ticker, "名稱": name, "收盤價(漲跌)": price_display, "股性模式": stock_profile, "股性類別": stock_category, "建議": rec_text, "最新動態": " / ".join(actions) if actions else "-", "詳細判定原因": detail_reason, "Yahoo股市": f"https://finance.yahoo.com/quote/{ticker}"})
@@ -425,26 +361,19 @@ def analyze_signals_comprehensive(watchlist):
 @st.cache_data(ttl=300)
 def generate_historical_signals_table(ticker, name, start_date, end_date):
     BUY_AND_HOLD_LIST = {"SGOV", "BIL", "SHV", "00719B.TW", "0050.TW", "VOO", "QQQM", "SPY", "IVV"}
-    fetch_start = start_date - timedelta(days=400)
+    fetch_start = start_date - timedelta(days=100)
     fetch_end = end_date + timedelta(days=2)
     df_d = yf.download(ticker, start=fetch_start.strftime('%Y-%m-%d'), end=fetch_end.strftime('%Y-%m-%d'), interval="1d", progress=False)
     if df_d.empty or len(df_d) < 35: return pd.DataFrame(), None
     if isinstance(df_d.columns, pd.MultiIndex): df_d.columns = df_d.columns.get_level_values(0)
     df_d = df_d.dropna()
 
-    close, high, low, volume = df_d['Close'], df_d['High'], df_d['Low'], df_d['Volume']
-    ma5, ma10, ma20 = close.rolling(5).mean(), close.rolling(10).mean(), close.rolling(20).mean()
-    vol_ma5 = volume.rolling(5).mean()
+    close, high, low = df_d['Close'], df_d['High'], df_d['Low']
+    ma20 = close.rolling(20).mean()
     ema12, ema26 = close.ewm(span=12, adjust=False).mean(), close.ewm(span=26, adjust=False).mean()
     dif = ema12 - ema26
     dea = dif.ewm(span=9, adjust=False).mean()
     hist = dif - dea
-    delta = close.diff()
-    g = delta.clip(lower=0).ewm(com=13, adjust=False).mean()
-    l = (-1 * delta.clip(upper=0)).ewm(com=13, adjust=False).mean()
-    rsi = 100 - (100 / (1 + (g / l)))
-    std20 = close.rolling(20).std()
-    ucl, lcl = ma20 + 2 * std20, ma20 - 2 * std20
 
     is_buy_and_hold = (ticker in BUY_AND_HOLD_LIST) or ("美債" in name and "0-3" in name)
     trading_dates_forward = [d for d in df_d.index if d.date() <= end_date]
@@ -458,25 +387,13 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
         if loc < 35: continue
 
         c_close, p_close = close.iloc[loc], close.iloc[loc - 1]
-        c_vol, c_vol_ma5 = volume.iloc[loc], vol_ma5.iloc[loc]
-        c_ma5, c_ma10, c_ma20, p_ma20 = ma5.iloc[loc], ma10.iloc[loc], ma20.iloc[loc], ma20.iloc[loc - 1]
-        c_hist, p_hist, c_rsi, c_ucl, c_lcl = hist.iloc[loc], hist.iloc[loc - 1], rsi.iloc[loc], ucl.iloc[loc], lcl.iloc[loc]
+        c_ma20 = ma20.iloc[loc]
+        c_hist, p_hist = hist.iloc[loc], hist.iloc[loc - 1]
         atr14 = (high.iloc[loc-13:loc+1] - low.iloc[loc-13:loc+1]).mean()
         atr_pct = (atr14 / c_close) * 100 if c_close > 0 else 0
 
-        if is_buy_and_hold:
-            is_high_momentum = False
-            stock_profile = "💰 核心·收息存債" if ("SGOV" in ticker or "債" in name) else "🏛️ 核心·指數複利"
-        else:
-            is_high_momentum = (atr_pct >= 3.5)
-            stock_profile = f"🚀 動能({atr_pct:.1f}%)" if is_high_momentum else f"🏛️ 穩健({atr_pct:.1f}%)"
-
-        lookback_len = min(250, loc)
-        h_1y = high.iloc[loc - lookback_len:loc + 1].max()
-        l_1y_prev = low.iloc[loc - lookback_len:loc].min() if lookback_len > 1 else low.iloc[loc]
-        l_1y = min(l_1y_prev, low.iloc[loc])
-        percentile_1y = ((c_close - l_1y) / (h_1y - l_1y)) * 100 if h_1y > l_1y else 50.0
-        is_broke_1y_low = (c_close <= l_1y_prev * 1.01) or (percentile_1y <= 10.0)
+        if is_buy_and_hold: stock_profile = "💰 核心·收息存債" if ("SGOV" in ticker or "債" in name) else "🏛️ 核心·指數複利"
+        else: stock_profile = f"🚀 動能({atr_pct:.1f}%)" if (atr_pct >= 3.5) else f"🏛️ 穩健({atr_pct:.1f}%)"
 
         change_pct = ((c_close - p_close) / p_close) * 100
         price_display = f"🔺 {c_close:.2f} (+{change_pct:.2f}%)" if change_pct > 0 else f"🔻 {c_close:.2f} ({change_pct:.2f}%)" if change_pct < 0 else f"➖ {c_close:.2f} (0.00%)"
@@ -485,13 +402,7 @@ def generate_historical_signals_table(ticker, name, start_date, end_date):
         if p_hist <= 0 and c_hist > 0: actions.append(f"日MACD剛金叉 ({date_short})")
         elif p_hist >= 0 and c_hist < 0: actions.append(f"日MACD剛死叉 ({date_short})")
 
-        rec_text, detail_reason = evaluate_strategy_signal(
-            c_close, p_close, c_vol, c_vol_ma5,
-            c_ma5, c_ma10, c_ma20, p_close, p_ma20,
-            c_hist, p_hist, c_rsi, c_lcl, c_ucl, 15.0,
-            is_high_momentum, is_buy_and_hold, stock_profile,
-            is_broke_1y_low, l_1y_prev, percentile_1y, was_holding=sim_holding
-        )
+        rec_text, detail_reason = evaluate_strategy_signal(c_close, c_ma20, c_hist, is_buy_and_hold, was_holding=sim_holding)
 
         if "買進" in rec_text or "波段續抱" in rec_text: sim_holding = True
         elif "賣出" in rec_text: sim_holding = False
@@ -559,29 +470,18 @@ def get_chart_data(ticker, interval, period):
     if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
     df = df.dropna()
 
-    # 1. 均線計算
     df['MA5'] = df['Close'].rolling(window=5).mean()
     df['MA10'] = df['Close'].rolling(window=10).mean()
     df['MA20'] = df['Close'].rolling(window=20).mean() 
-    
-    # 保留策略必要運算欄位 (不繪製)
-    df['Vol_MA5'] = df['Volume'].rolling(window=5).mean()
-    df['STD20'] = df['Close'].rolling(window=20).std()
-    df['UCL'] = df['MA20'] + 2 * df['STD20']
-    df['LCL'] = df['MA20'] - 2 * df['STD20']
-    delta = df['Close'].diff()
-    df['RSI'] = 100 - (100 / (1 + (delta.clip(lower=0).ewm(com=13, adjust=False).mean() / (-1 * delta.clip(upper=0)).ewm(com=13, adjust=False).mean())))
 
-    # 2. MACD 計算
     df['DIF'] = df['Close'].ewm(span=12, adjust=False).mean() - df['Close'].ewm(span=26, adjust=False).mean()
     df['DEA'] = df['DIF'].ewm(span=9, adjust=False).mean()
     df['MACD_Hist'] = df['DIF'] - df['DEA']
 
-    # 3. KD 指標計算 (9, 3, 3)
     low_min = df['Low'].rolling(window=9, min_periods=1).min()
     high_max = df['High'].rolling(window=9, min_periods=1).max()
     df['RSV'] = (df['Close'] - low_min) / (high_max - low_min) * 100
-    df['K'] = df['RSV'].ewm(com=2, adjust=False).mean() # com=2 等同於 alpha=1/3
+    df['K'] = df['RSV'].ewm(com=2, adjust=False).mean()
     df['D'] = df['K'].ewm(com=2, adjust=False).mean()
 
     return df
@@ -658,26 +558,16 @@ with tab_dashboard:
             chart_df = get_chart_data(selected_ticker, tf_interval, tf_period)
             
             if chart_df is not None:
-                # 建立三區塊版面： K線與均線(0.55), KD(0.2), MACD(0.25)
-                fig = make_subplots(rows=3, cols=1, shared_xaxes=True, 
-                                    vertical_spacing=0.02, row_heights=[0.55, 0.2, 0.25])
+                fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.02, row_heights=[0.55, 0.2, 0.25])
 
-                # 【上半部】K線與均線
-                fig.add_trace(go.Candlestick(x=chart_df.index, open=chart_df['Open'], high=chart_df['High'],
-                                             low=chart_df['Low'], close=chart_df['Close'], 
-                                             name='K線', 
-                                             increasing_line_color='#FF0000', increasing_fillcolor='#FF0000',
-                                             decreasing_line_color='#00FF00', decreasing_fillcolor='#00FF00'), row=1, col=1)
-                
+                fig.add_trace(go.Candlestick(x=chart_df.index, open=chart_df['Open'], high=chart_df['High'], low=chart_df['Low'], close=chart_df['Close'], name='K線', increasing_line_color='#FF0000', increasing_fillcolor='#FF0000', decreasing_line_color='#00FF00', decreasing_fillcolor='#00FF00'), row=1, col=1)
                 fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['MA5'], line=dict(color='#FFFF00', width=1.5), name='5T'), row=1, col=1)
                 fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['MA10'], line=dict(color='#00FFFF', width=1.5), name='10T'), row=1, col=1)
                 fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['MA20'], line=dict(color='#FF00FF', width=1.5), name='20T'), row=1, col=1)
 
-                # 【中半部】KD 指標
                 fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['K'], line=dict(color='#FFFF00', width=1.2), name='9K'), row=2, col=1)
                 fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['D'], line=dict(color='#00FFFF', width=1.2), name='9D'), row=2, col=1)
 
-                # 【下半部】MACD 指標
                 macd_colors = ['#FF0000' if val > 0 else '#00FF00' for val in chart_df['MACD_Hist']]
                 fig.add_trace(go.Bar(x=chart_df.index, y=chart_df['MACD_Hist'], marker_color=macd_colors, name='MACD柱'), row=3, col=1)
                 fig.add_trace(go.Scatter(x=chart_df.index, y=chart_df['DIF'], line=dict(color='#FFFF00', width=1.2), name='DIF12-26'), row=3, col=1)
@@ -690,30 +580,15 @@ with tab_dashboard:
                 end_date_c = chart_df.index[-1]
                 start_date_c = end_date_c - pd.DateOffset(years=1) if tf_interval == "1wk" else end_date_c - pd.DateOffset(months=3)
 
-                # 【整體視覺格式化 (黑底/深色模式)】
                 fig.update_layout(
-                    plot_bgcolor='#000000',
-                    paper_bgcolor='#000000',
-                    font=dict(color='#FFFFFF'),
-                    height=750, 
-                    margin=dict(l=10, r=40, t=10, b=30), 
-                    xaxis_rangeslider_visible=False,
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, font=dict(color="white", size=11)), 
-                    hovermode="x unified"
+                    plot_bgcolor='#000000', paper_bgcolor='#000000', font=dict(color='#FFFFFF'),
+                    height=750, margin=dict(l=10, r=40, t=10, b=30), xaxis_rangeslider_visible=False,
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, font=dict(color="white", size=11)), hovermode="x unified"
                 )
-                
-                # 更新格線顏色與Y軸位置(移至右側)
-                fig.update_xaxes(
-                    showgrid=True, gridcolor='#333333', gridwidth=0.5, zeroline=False,
-                    range=[start_date_c, end_date_c],
-                    rangebreaks=[dict(values=dt_breaks)],
-                    row=3, col=1 # 日期標籤顯示在最底部
-                )
+                fig.update_xaxes(showgrid=True, gridcolor='#333333', gridwidth=0.5, zeroline=False, range=[start_date_c, end_date_c], rangebreaks=[dict(values=dt_breaks)], row=3, col=1)
                 fig.update_yaxes(showgrid=True, gridcolor='#333333', gridwidth=0.5, side='right', zeroline=False)
-                
                 st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-            else:
-                st.warning("⚠️ 無法取得該標的的 K 線圖資料。")
+            else: st.warning("⚠️ 無法取得該標的的 K 線圖資料。")
 
 with tab_rules:
     st.header("📖 雙指標波段系統 - 策略判斷原則 (MACD+20MA 濾網版)")
@@ -737,15 +612,118 @@ with tab_rules:
 
 with tab_settings:
     st.subheader("⚙️ 編輯自選股清單")
-    # ... (保持原樣)
+    edit_tab1, edit_tab2, edit_tab3 = st.tabs(["📁 自選股 1 (標準預設)", "📁 自選股 2", "📁 自選股 3"])
+    with edit_tab1:
+        u_input1 = st.text_area("📝 編輯自選股 1 清單：", st.session_state.watchlist_1_text, height=300, key="text_edit_1")
+        if u_input1 != st.session_state.watchlist_1_text: st.session_state.watchlist_1_text = u_input1; save_settings()
+    with edit_tab2:
+        u_input2 = st.text_area("📝 編輯自選股 2 清單：", st.session_state.watchlist_2_text, height=300, key="text_edit_2")
+        if u_input2 != st.session_state.watchlist_2_text: st.session_state.watchlist_2_text = u_input2; save_settings()
+    with edit_tab3:
+        u_input3 = st.text_area("📝 編輯自選股 3 清單：", st.session_state.watchlist_3_text, height=300, key="text_edit_3")
+        if u_input3 != st.session_state.watchlist_3_text: st.session_state.watchlist_3_text = u_input3; save_settings()
+
+    st.divider()
+    st.subheader("🔔 LINE 即時通知與定時早晚報設定")
+    col_l1, col_l2 = st.columns([1, 1])
+    with col_l1:
+        st.checkbox("啟用【盤中關鍵訊號即時推播】", value=st.session_state.enable_line_notify_input, key="enable_line_notify_input", on_change=update_other_inputs)
+        st.checkbox("啟用【每日定時早晚報推播】", value=st.session_state.enable_daily_reports_input, key="enable_daily_reports_input", on_change=update_other_inputs)
+        line_token = st.text_input("Channel Access Token (Long-lived)：", type="password", value=st.session_state.line_token_input, key="line_token_input", on_change=update_other_inputs)
+        line_user_id = st.text_input("Your User ID：", value=st.session_state.line_user_id_input, key="line_user_id_input", on_change=update_other_inputs)
+    with col_l2:
+        st.markdown("#### 🧪 手動測試推播功能")
+        c_btn1, c_btn2, c_btn3 = st.columns(3)
+        with c_btn1:
+            if st.button("連線測試"):
+                if not line_token or not line_user_id: st.error("請先填入 Token 與 User ID！")
+                else:
+                    ok, res = send_line_message(line_token, line_user_id, f"🔔【雙指標系統】連線測試成功！當前時間：{get_tw_now().strftime('%Y-%m-%d %H:%M:%S')}。")
+                    if ok: st.success("✅ 連線成功！")
+                    else: st.error(f"❌ 失敗：{res}")
+        with c_btn2:
+            if st.button("發送盤前早報"):
+                if not line_token or not line_user_id: st.error("請先填入 Token 與 User ID！")
+                else:
+                    ok, res = send_line_message(line_token, line_user_id, build_morning_report(display_df, market_trend_global, st.session_state.current_group_choice))
+                    if ok: st.success("✅ 早報推播成功！")
+                    else: st.error(f"❌ 失敗：{res}")
+        with c_btn3:
+            if st.button("發送盤後晚報"):
+                if not line_token or not line_user_id: st.error("請先填入 Token 與 User ID！")
+                else:
+                    ok, res = send_line_message(line_token, line_user_id, build_evening_report(display_df, st.session_state.current_group_choice))
+                    if ok: st.success("✅ 晚報推播成功！")
+                    else: st.error(f"❌ 失敗：{res}")
 
 with tab_war_room:
     st.subheader(f"⚔️ 買賣戰情室【{st.session_state.current_group_choice}】 (MACD 搭配 20MA 濾網版)")
-    # ... (保持原樣)
+    if display_df.empty: st.warning(f"⚠️【{st.session_state.current_group_choice}】目前為空。")
+    else:
+        df_buy = display_df[display_df['建議'].str.contains("買進", na=False)].reset_index(drop=True)
+        df_hold = display_df[display_df['建議'].str.contains("波段續抱", na=False)].reset_index(drop=True)
+        df_sell = display_df[display_df['建議'].str.contains("賣出", na=False)].reset_index(drop=True)
+        df_fake = display_df[display_df['建議'].str.contains("假金叉排除", na=False)].reset_index(drop=True)
+        df_empty = display_df[display_df['建議'].str.contains("空頭格局", na=False)].reset_index(drop=True)
+
+        today_str, grp_name_clean = get_tw_now().strftime('%Y%m%d'), st.session_state.current_group_choice.replace(" ", "")
+        def render_section_with_export(title_text, df_sec, key_prefix):
+            col_t, col_b = st.columns([4, 1])
+            with col_t: st.markdown(f"#### {title_text}")
+            with col_b:
+                if not df_sec.empty: st.download_button("📥 匯出當日報表", df_sec.to_csv(index=False).encode('utf-8-sig'), f"戰情室_{key_prefix}_{grp_name_clean}_{today_str}.csv", "text/csv", key=f"btn_exp_{key_prefix}")
+
+        if not df_buy.empty:
+            render_section_with_export(f"🚀 強勢啟動（金叉且站上月線）：🟢 買進建倉 ({len(df_buy)})", df_buy, "買進特區")
+            st.dataframe(style_dataframe(df_buy.drop(columns=['股性類別'])), use_container_width=True)
+            st.divider()
+        if not df_hold.empty:
+            render_section_with_export(f"🟢 多頭格局（安全持股）：🟢 波段續抱 ({len(df_hold)})", df_hold, "波段續抱")
+            st.dataframe(style_dataframe(df_hold.drop(columns=['股性類別'])), use_container_width=True)
+            st.divider()
+        if not df_sell.empty:
+            render_section_with_export(f"🔴 動能反轉（死叉或跌破月線）：🔴 停利/停損賣出 ({len(df_sell)})", df_sell, "破位出場")
+            st.dataframe(style_dataframe(df_sell.drop(columns=['股性類別'])), use_container_width=True)
+            st.divider()
+        if not df_fake.empty:
+            render_section_with_export(f"⚠️ 逃命波防禦（月線壓制下假金叉）：⚠️ 假金叉排除 ({len(df_fake)})", df_fake, "假金叉排除")
+            st.dataframe(style_dataframe(df_fake.drop(columns=['股性類別'])), use_container_width=True)
+            st.divider()
+        if not df_empty.empty:
+            render_section_with_export(f"⚪ 空頭架構：⚪ 空手觀望 ({len(df_empty)})", df_empty, "空手觀望")
+            st.dataframe(style_dataframe(df_empty.drop(columns=['股性類別'])), use_container_width=True)
 
 with tab_deep_dive:
     st.subheader("🔬 個股走勢深度分析")
-    # ... (保持原樣)
+    col_stock, col_start, col_end = st.columns([2, 2, 2])
+    deep_options_dict = ACTIVE_WATCHLIST.copy()
+    if temp_ticker and temp_ticker not in deep_options_dict: deep_options_dict[temp_ticker] = temp_name if temp_name else temp_ticker
+    deep_options = [f"{k} - {v}" for k, v in deep_options_dict.items()]
+
+    with col_stock:
+        default_deep_idx = 0
+        if st.session_state.selected_ticker:
+            for i, opt in enumerate(deep_options):
+                if opt.startswith(st.session_state.selected_ticker): default_deep_idx = i; break
+        selected_deep_opt = st.selectbox("📌 選擇要分析的標的：", deep_options, index=default_deep_idx, key="deep_stock_select")
+        target_ticker = selected_deep_opt.split(" - ")[0] if selected_deep_opt else None
+        target_name = deep_options_dict.get(target_ticker, target_ticker)
+
+    now_tw_date = get_tw_now().date()
+    with col_start: start_date = st.date_input("📅 起始時間：", value=now_tw_date - timedelta(days=60), key="deep_start_date")
+    with col_end: end_date = st.date_input("📅 結束時間：", value=now_tw_date, key="deep_end_date")
+
+    if start_date > end_date: st.error("⚠️ 起始時間必須早於或等於結束時間。")
+    elif target_ticker:
+        with st.spinner(f"正在逐日回溯 {target_ticker}..."):
+            hist_signals_df, ma5_info = generate_historical_signals_table(target_ticker, target_name, start_date, end_date)
+        if hist_signals_df.empty: st.warning("⚠️ 區間內無資料。")
+        else:
+            col_dh_title, col_dh_btn = st.columns([4, 1])
+            with col_dh_title: st.markdown(f"#### 📋 {target_ticker} - {target_name} 逐日狀態明細表")
+            with col_dh_btn: st.download_button("📥 匯出當日報表", hist_signals_df.to_csv(index=False).encode('utf-8-sig'), f"深度分析_{target_ticker}_{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}.csv", "text/csv", key="btn_exp_deep_table")
+            st.dataframe(style_dataframe(hist_signals_df), use_container_width=True, hide_index=True)
+            st.markdown(generate_summary_insight(hist_signals_df, target_ticker, target_name, ma5_info), unsafe_allow_html=True)
 
 st.divider()
 st.markdown("<div style='text-align: center; color: #888888; font-size: 14px; padding: 10px;'>本系統由 Robert 開發，僅供技術分析研究，非投資買賣建議</div>", unsafe_allow_html=True)
