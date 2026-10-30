@@ -261,7 +261,7 @@ hide_st_style = """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
 # ==========================================
-# 🎯 核心決策判斷引擎：MACD + 雙向洗盤防禦 + KD提前預警 + DIF 標示與賣出
+# 🎯 核心決策判斷引擎：MACD + 雙向洗盤防禦 + KD提前預警 + DIF 衰退標示
 # ==========================================
 def evaluate_strategy_signal(
     curr_close, prev_close, c_ma10, c_ma20, c_hist, c_dif, p_dif, c_k, c_d, p_k, p_d, is_buy_and_hold, was_holding=True
@@ -290,9 +290,9 @@ def evaluate_strategy_signal(
     # ---------------------------------------------------------
     if is_macd_bullish and is_above_20ma:
         if was_holding: 
-            # 💡 【新增：波段續抱中，若 DIF 反轉向下，提前賣出】
-            if c_dif < p_dif:
-                return "🔴 賣出 (DIF反轉向下)", f"{dif_tag} 雖然 MACD 仍為紅柱且股價站穩 20MA，但 DIF 已領先反轉向下，動能衰退，建議逢高賣出停利。"
+            # 💡 【修改：波段續抱中，若 DIF 反轉向下且衰退幅度達 10%，提前賣出】
+            if c_dif < (p_dif * 0.9) and p_dif > 0:
+                return "🔴 賣出 (DIF反轉向下)", f"{dif_tag} 雖然 MACD 仍為紅柱，但 DIF 已領先反轉向下衰退達 10%，動能顯著轉弱，建議逢高賣出停利。"
             else:
                 return "🟢 波段續抱 (多頭格局)", f"{dif_tag} 日 MACD 維持紅柱且股價在 20MA({c_ma20:.2f}) 之上，安全抱牢。"
         else: 
@@ -713,9 +713,9 @@ with tab_rules:
     5. **🛡️ 假死叉防禦濾網 (高檔洗盤防禦)**
        * **觸發條件**：日 MACD 柱狀雖微幅翻綠，**但當天為上漲/平盤，或股價未實質跌破 10MA**。
        * **動作**：此為高檔強勢震盪洗盤，忽略死叉訊號，堅定抱牢不被洗下車！
-    6. **🔴 提前停利濾網 (DIF 反轉向下)**
-       * **觸發條件**：波段續抱中，但 DIF 指標出現向下彎折 (當日 DIF < 前一日 DIF)。
-       * **動作**：動能領先衰退，強制賣出停利。
+    6. **🔴 提前停利濾網 (DIF 反轉向下衰退達 10%)**
+       * **觸發條件**：波段續抱中，但當日 DIF 小於前一日 DIF 的 90% (衰退達 10%)。
+       * **動作**：動能顯著衰退，強制賣出提前停利。
     """)
 
 with tab_settings:
@@ -790,7 +790,7 @@ with tab_war_room:
             st.dataframe(style_dataframe(df_hold.drop(columns=['股性類別'])), use_container_width=True)
             st.divider()
         if not df_sell.empty:
-            render_section_with_export(f"🔴 動能反轉（死叉或跌破月線或DIF反轉）：🔴 停利/停損賣出 ({len(df_sell)})", df_sell, "破位出場")
+            render_section_with_export(f"🔴 動能反轉（死叉/破線/DIF衰退）：🔴 停利/停損賣出 ({len(df_sell)})", df_sell, "破位出場")
             st.dataframe(style_dataframe(df_sell.drop(columns=['股性類別'])), use_container_width=True)
             st.divider()
         if not df_fake.empty:
