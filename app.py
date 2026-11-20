@@ -752,8 +752,8 @@ with tab_settings:
     with col_l1:
         st.checkbox("啟用【盤中關鍵訊號即時推播】", value=st.session_state.enable_line_notify_input, key="enable_line_notify_input", on_change=update_other_inputs)
         st.checkbox("啟用【每日定時早晚報推播】", value=st.session_state.enable_daily_reports_input, key="enable_daily_reports_input", on_change=update_other_inputs)
-        line_token = jigettYcNnvYCQQSO7BnNwgJ42j5P99N3by9aaPbs0yk1jvV4kOcfqawoOGtKIZveCzN2PF0CUuQ0OuMjJ98sNyDwSvL15zMD+taifLuEjXS0mqAzt7xvZ5i6kwVmmTUdJa0DzgcL7Vo85FYF0eO7gdB04t89/1O/w1cDnyilFU=other_inputs)
-        line_user_id = U3b50dd59c1e994993db9cb1b46f1e6d8
+        line_token =jigettYcNnvYCQQSO7BnNwgJ42j5P99N3by9aaPbs0yk1jvV4kOcfqawoOGtKIZveCzN2PF0CUuQ0OuMjJ98sNyDwSvL15zMD+taifLuEjXS0mqAzt7xvZ5i6kwVmmTUdJa0DzgcL7Vo85FYF0eO7gdB04t89/1O/w1cDnyilFU=other_inputs)
+        line_user_id =U3b50dd59c1e994993db9cb1b46f1e6d8
     with col_l2:
         st.markdown("#### 🧪 手動測試推播功能")
         c_btn1, c_btn2, c_btn3 = st.columns(3)
