@@ -753,7 +753,7 @@ with tab_settings:
         st.checkbox("啟用【盤中關鍵訊號即時推播】", value=st.session_state.enable_line_notify_input, key="enable_line_notify_input", on_change=update_other_inputs)
         st.checkbox("啟用【每日定時早晚報推播】", value=st.session_state.enable_daily_reports_input, key="enable_daily_reports_input", on_change=update_other_inputs)
         line_token = st.text_input("Channel Access Token (Long-lived)：", type="password", value=st.session_state.line_token_input, key="line_token_input", on_change=update_other_inputs)
-        line_user_id = st.text_input("Your User ID：", value=st.session_state.line_user_id_input, key="line_user_id_input", on_change=update_other_inputs)
+        line_user_id = st.text_input("Your User ID：U3b50dd59c1e994993db9cb1b46f1e6d8)
     with col_l2:
         st.markdown("#### 🧪 手動測試推播功能")
         c_btn1, c_btn2, c_btn3 = st.columns(3)
