@@ -366,7 +366,7 @@ def get_market_trend(ticker):
 @st.cache_data(ttl=300)
 def analyze_signals_comprehensive(watchlist):
     results = []
-    BUY_AND_HOLD_LIST = {"SGOV", "BIL", "SHV", "00719B.TW", "0050.TW", "VOO", "QQQM", "SPY", "IVV"}
+    BUY_AND_HOLD_LIST = {"SGOV", "BIL", "SHV", "00719B.TW", "VOO", "QQQM", "SPY", "IVV"}
     for ticker, name in watchlist.items():
         try:
             df_d = yf.download(ticker, period="1y", interval="1d", progress=False)
@@ -446,7 +446,7 @@ def analyze_signals_comprehensive(watchlist):
 
 @st.cache_data(ttl=300)
 def generate_historical_signals_table(ticker, name, start_date, end_date):
-    BUY_AND_HOLD_LIST = {"SGOV", "BIL", "SHV", "00719B.TW", "0050.TW", "VOO", "QQQM", "SPY", "IVV"}
+    BUY_AND_HOLD_LIST = {"SGOV", "BIL", "SHV", "00719B.TW", "VOO", "QQQM", "SPY", "IVV"}
     fetch_start = start_date - timedelta(days=100)
     fetch_end = end_date + timedelta(days=2)
     df_d = yf.download(ticker, start=fetch_start.strftime('%Y-%m-%d'), end=fetch_end.strftime('%Y-%m-%d'), interval="1d", progress=False)
