@@ -30,6 +30,10 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SETTINGS_FILE = os.path.join(BASE_DIR, "user_settings.json")
 NOTIFICATION_CACHE_FILE = os.path.join(BASE_DIR, "notified_cache.json")
 
+# 固定 LINE Messaging API 設定
+DEFAULT_LINE_USER_ID = "U3b50dd59c1e994993db9cb1b46f1e6d8"
+DEFAULT_LINE_TOKEN = "jigettYcNnvYCQQSO7BnNwgJ42j5P99N3by9aaPbs0yk1jvV4kOcfqawoOGtKIZveCzN2PF0CUuQ0OuMjJ98sNyDwSvL15zMD+taifLuEjXS0mqAzt7xvZ5i6kwVmmTUdJa0DzgcL7Vo85FYF0eO7gdB04t89/1O/w1cDnyilFU="
+
 DEFAULT_LIST_1 = """0050.TW,元大台灣50
 2812.TW,台中銀
 1101.TW,台泥
@@ -55,7 +59,6 @@ SGOV,SGOV美債
 3376.TW,新日興
 2912.TW,統一超
 1216.TW,統一
-1802.TW,台玻
 3406.TW,玉晶光"""
 
 DEFAULT_LIST_2 = """2330.TW,台積電
@@ -79,7 +82,12 @@ def load_settings():
     if os.path.exists(SETTINGS_FILE):
         try:
             with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
+                if not data.get("line_token"):
+                    data["line_token"] = DEFAULT_LINE_TOKEN
+                if not data.get("line_user_id"):
+                    data["line_user_id"] = DEFAULT_LINE_USER_ID
+                return data
         except Exception:
             pass
     return {
@@ -90,8 +98,8 @@ def load_settings():
         "watchlist_1": DEFAULT_LIST_1,
         "watchlist_2": DEFAULT_LIST_2,
         "watchlist_3": DEFAULT_LIST_3,
-        "line_token": "",
-        "line_user_id": "",
+        "line_token": DEFAULT_LINE_TOKEN,
+        "line_user_id": DEFAULT_LINE_USER_ID,
         "enable_line_notify": False,
         "enable_daily_reports": False
     }
@@ -105,8 +113,8 @@ def save_settings():
         "watchlist_1": st.session_state.get("watchlist_1_text", DEFAULT_LIST_1),
         "watchlist_2": st.session_state.get("watchlist_2_text", DEFAULT_LIST_2),
         "watchlist_3": st.session_state.get("watchlist_3_text", DEFAULT_LIST_3),
-        "line_token": st.session_state.get("line_token_input", ""),
-        "line_user_id": st.session_state.get("line_user_id_input", ""),
+        "line_token": st.session_state.get("line_token_input") or DEFAULT_LINE_TOKEN,
+        "line_user_id": st.session_state.get("line_user_id_input") or DEFAULT_LINE_USER_ID,
         "enable_line_notify": st.session_state.get("enable_line_notify_input", False),
         "enable_daily_reports": st.session_state.get("enable_daily_reports_input", False)
     }
@@ -135,9 +143,9 @@ if 'watchlist_2_text' not in st.session_state:
 if 'watchlist_3_text' not in st.session_state:
     st.session_state.watchlist_3_text = settings.get("watchlist_3", DEFAULT_LIST_3)
 if 'line_token_input' not in st.session_state:
-    st.session_state.line_token_input = settings.get("line_token", "")
+    st.session_state.line_token_input = settings.get("line_token") or DEFAULT_LINE_TOKEN
 if 'line_user_id_input' not in st.session_state:
-    st.session_state.line_user_id_input = settings.get("line_user_id", "")
+    st.session_state.line_user_id_input = settings.get("line_user_id") or DEFAULT_LINE_USER_ID
 if 'enable_line_notify_input' not in st.session_state:
     st.session_state.enable_line_notify_input = settings.get("enable_line_notify", False)
 if 'enable_daily_reports_input' not in st.session_state:
@@ -215,8 +223,8 @@ def build_evening_report(df_results, group_name):
     return f"🌆【雙指標系統 - 每日盤後總結】\n━━━━━━━━━━━━━━\n📅 日期：{today_str} (13:45 盤後)\n📁 組合：{group_name} (共 {total_count} 檔)\n\n📊 盤後狀態分佈：\n🟢 買進建倉/向上：{buy_cnt} 檔\n🟢 多頭持股續抱：{hold_cnt} 檔\n🔴 賣出/逃命防守：{sell_cnt} 檔\n⚪ 空手觀望：{empty_cnt} 檔\n\n⚡ 今日關鍵動態事件：\n{chr(10).join(action_items[:6])}\n━━━━━━━━━━━━━━\n📋 完整日誌可至『深度分析』匯出 CSV 進行盤後覆盤。"
 
 def check_and_notify_signals(df_results, market_trend, group_name):
-    token = st.session_state.line_token_input.strip()
-    user_id = st.session_state.line_user_id_input.strip()
+    token = (st.session_state.line_token_input or DEFAULT_LINE_TOKEN).strip()
+    user_id = (st.session_state.line_user_id_input or DEFAULT_LINE_USER_ID).strip()
     if not token or not user_id: return
     cache = load_notified_cache()
     now_tw = get_tw_now()
@@ -358,7 +366,7 @@ def get_market_trend(ticker):
 @st.cache_data(ttl=300)
 def analyze_signals_comprehensive(watchlist):
     results = []
-    BUY_AND_HOLD_LIST = {"SGOV", "BIL", "SHV", "00719B.TW",  "VOO", "QQQM", "SPY", "IVV"}
+    BUY_AND_HOLD_LIST = {"SGOV", "BIL", "SHV", "00719B.TW", "0050.TW", "VOO", "QQQM", "SPY", "IVV"}
     for ticker, name in watchlist.items():
         try:
             df_d = yf.download(ticker, period="1y", interval="1d", progress=False)
@@ -756,7 +764,6 @@ with tab_settings:
     with col_l1:
         st.checkbox("啟用【盤中關鍵訊號即時推播】", value=st.session_state.enable_line_notify_input, key="enable_line_notify_input", on_change=update_other_inputs)
         st.checkbox("啟用【每日定時早晚報推播】", value=st.session_state.enable_daily_reports_input, key="enable_daily_reports_input", on_change=update_other_inputs)
-     
         line_token = st.text_input("Channel Access Token (Long-lived)：", type="password", value=st.session_state.line_token_input, key="line_token_input", on_change=update_other_inputs)
         line_user_id = st.text_input("Your User ID：", value=st.session_state.line_user_id_input, key="line_user_id_input", on_change=update_other_inputs)
     with col_l2:
