@@ -70,7 +70,7 @@ DEFAULT_LIST_2 = """2330.TW,台積電
 6669.TW,緯穎
 3017.TW,奇鋐"""
 
-DEFAULT_LIST_3 = """0050.TW,元大台灣50
+DEFAULT_LIST_3 = """
 0056.TW,元大高股息
 00878.TW,國泰永續高股息
 VOO,VOO標普500
