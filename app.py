@@ -357,7 +357,7 @@ def get_market_trend(ticker):
 @st.cache_data(ttl=300)
 def analyze_signals_comprehensive(watchlist):
     results = []
-    BUY_AND_HOLD_LIST = {"SGOV", "BIL", "SHV", "00719B.TW", "0050.TW", "VOO", "QQQM", "SPY", "IVV"}
+    BUY_AND_HOLD_LIST = {"SGOV", "BIL", "SHV", "00719B.TW",  "VOO", "QQQM", "SPY", "IVV"}
     for ticker, name in watchlist.items():
         try:
             df_d = yf.download(ticker, period="1y", interval="1d", progress=False)
@@ -755,32 +755,34 @@ with tab_settings:
     with col_l1:
         st.checkbox("啟用【盤中關鍵訊號即時推播】", value=st.session_state.enable_line_notify_input, key="enable_line_notify_input", on_change=update_other_inputs)
         st.checkbox("啟用【每日定時早晚報推播】", value=st.session_state.enable_daily_reports_input, key="enable_daily_reports_input", on_change=update_other_inputs)
-        line_token = st.text_input("Channel Access Token (Long-lived)：", type="password", value=st.session_state.line_token_input, key="line_token_input", on_change=update_other_inputs)
-        line_user_id = st.text_input("Your User ID：", value=st.session_state.line_user_id_input, key="line_user_id_input", on_change=update_other_inputs)
-    with col_l2:
-        st.markdown("#### 🧪 手動測試推播功能")
-        c_btn1, c_btn2, c_btn3 = st.columns(3)
-        with c_btn1:
-            if st.button("連線測試"):
-                if not line_token or not line_user_id: st.error("請先填入 Token 與 User ID！")
-                else:
-                    ok, res = send_line_message(line_token, line_user_id, f"🔔【雙指標系統】連線測試成功！當前時間：{get_tw_now().strftime('%Y-%m-%d %H:%M:%S')}。")
-                    if ok: st.success("✅ 連線成功！")
-                    else: st.error(f"❌ 失敗：{res}")
-        with c_btn2:
-            if st.button("發送盤前早報"):
-                if not line_token or not line_user_id: st.error("請先填入 Token 與 User ID！")
-                else:
-                    ok, res = send_line_message(line_token, line_user_id, build_morning_report(display_df, market_trend_global, st.session_state.current_group_choice))
-                    if ok: st.success("✅ 早報推播成功！")
-                    else: st.error(f"❌ 失敗：{res}")
-        with c_btn3:
-            if st.button("發送盤後晚報"):
-                if not line_token or not line_user_id: st.error("請先填入 Token 與 User ID！")
-                else:
-                    ok, res = send_line_message(line_token, line_user_id, build_evening_report(display_df, st.session_state.current_group_choice))
-                    if ok: st.success("✅ 晚報推播成功！")
-                    else: st.error(f"❌ 失敗：{res}")
+       line_token =jigettYcNnvYCQQSO7BnNwgJ42j5P99N3by9aaPbs0yk1jvV4kOcfqawoOGtKIZveCzN2PF0CUuQ0OuMjJ98sNyDwSvL15zMD+taifLuEjXS0mqAzt7xvZ5i6kwVmmTUdJa0DzgcL7Vo85FYF0eO7gdB04t89/1O/w1cDnyilFU=
+       line_user_id =U3b50dd59c1e994993db9cb1b46f1e6d8 
+   #     line_token = st.text_input("Channel Access Token (Long-lived)：", type="password", value=st.session_state.line_token_input, key="line_token_input", on_change=update_other_inputs)
+   #     line_user_id = st.text_input("Your User ID：", value=st.session_state.line_user_id_input, key="line_user_id_input", on_change=update_other_inputs)
+   # with col_l2:
+   #     st.markdown("#### 🧪 手動測試推播功能")
+    #    c_btn1, c_btn2, c_btn3 = st.columns(3)
+    #    with c_btn1:
+     #       if st.button("連線測試"):
+     #           if not line_token or not line_user_id: st.error("請先填入 Token 與 User ID！")
+     #           else:
+     #               ok, res = send_line_message(line_token, line_user_id, f"🔔【雙指標系統】連線測試成功！當前時間：{get_tw_now().strftime('%Y-%m-%d %H:%M:%S')}。")
+     #               if ok: st.success("✅ 連線成功！")
+     #               else: st.error(f"❌ 失敗：{res}")
+     #   with c_btn2:
+     #       if st.button("發送盤前早報"):
+     #           if not line_token or not line_user_id: st.error("請先填入 Token 與 User ID！")
+     #           else:
+     #               ok, res = send_line_message(line_token, line_user_id, build_morning_report(display_df, market_trend_global, st.session_state.current_group_choice))
+     #               if ok: st.success("✅ 早報推播成功！")
+    #                else: st.error(f"❌ 失敗：{res}")
+    #    with c_btn3:
+    #        if st.button("發送盤後晚報"):
+    #            if not line_token or not line_user_id: st.error("請先填入 Token 與 User ID！")
+    #            else:
+    #                ok, res = send_line_message(line_token, line_user_id, build_evening_report(display_df, st.session_state.current_group_choice))
+    #                if ok: st.success("✅ 晚報推播成功！")
+    #                else: st.error(f"❌ 失敗：{res}")
 
 with tab_war_room:
     st.subheader(f"⚔️ 買賣戰情室【{st.session_state.current_group_choice}】 (MACD 搭配雙向濾網版)")
