@@ -759,22 +759,18 @@ with tab_settings:
         c_btn1, c_btn2, c_btn3 = st.columns(3)
         with c_btn1:
             if st.button("連線測試"):
-                if not line_token or not line_user_id: st.error("請先填入 Token 與 User ID！")
-                else:
                     ok, res = send_line_message(line_token, line_user_id, f"🔔【雙指標系統】連線測試成功！當前時間：{get_tw_now().strftime('%Y-%m-%d %H:%M:%S')}。")
                     if ok: st.success("✅ 連線成功！")
                     else: st.error(f"❌ 失敗：{res}")
         with c_btn2:
             if st.button("發送盤前早報"):
-                if not line_token or not line_user_id: st.error("請先填入 Token 與 User ID！")
-                else:
+               
                     ok, res = send_line_message(line_token, line_user_id, build_morning_report(display_df, market_trend_global, st.session_state.current_group_choice))
                     if ok: st.success("✅ 早報推播成功！")
                     else: st.error(f"❌ 失敗：{res}")
         with c_btn3:
             if st.button("發送盤後晚報"):
-                if not line_token or not line_user_id: st.error("請先填入 Token 與 User ID！")
-                else:
+               
                     ok, res = send_line_message(line_token, line_user_id, build_evening_report(display_df, st.session_state.current_group_choice))
                     if ok: st.success("✅ 晚報推播成功！")
                     else: st.error(f"❌ 失敗：{res}")
