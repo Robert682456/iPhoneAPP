@@ -30,10 +30,6 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SETTINGS_FILE = os.path.join(BASE_DIR, "user_settings.json")
 NOTIFICATION_CACHE_FILE = os.path.join(BASE_DIR, "notified_cache.json")
 
-# 固定 LINE Messaging API 設定
-DEFAULT_LINE_USER_ID = "U3b50dd59c1e994993db9cb1b46f1e6d8"
-DEFAULT_LINE_TOKEN = "jigettYcNnvYCQQSO7BnNwgJ42j5P99N3by9aaPbs0yk1jvV4kOcfqawoOGtKIZveCzN2PF0CUuQ0OuMjJ98sNyDwSvL15zMD+taifLuEjXS0mqAzt7xvZ5i6kwVmmTUdJa0DzgcL7Vo85FYF0eO7gdB04t89/1O/w1cDnyilFU="
-
 DEFAULT_LIST_1 = """0050.TW,元大台灣50
 2812.TW,台中銀
 1101.TW,台泥
@@ -78,22 +74,11 @@ QQQM,QQQM納指100
 SGOV,SGOV美債
 00719B.TW,富邦美債1-3"""
 
-DEFAULT_LIST_INVENTORY = """0050.TW,元大台灣50"""
-
 def load_settings():
     if os.path.exists(SETTINGS_FILE):
         try:
             with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if not data.get("line_token"):
-                    data["line_token"] = DEFAULT_LINE_TOKEN
-                if not data.get("line_user_id"):
-                    data["line_user_id"] = DEFAULT_LINE_USER_ID
-                data.setdefault("watchlist_inventory", DEFAULT_LIST_INVENTORY)
-                data.setdefault("etf0050_k_threshold", 20.0)
-                data.setdefault("etf0050_drawdown_pct", 10.0)
-                data.setdefault("etf0050_trigger_mode", "符合任一條件 (OR)")
-                return data
+                return json.load(f)
         except Exception:
             pass
     return {
@@ -104,14 +89,10 @@ def load_settings():
         "watchlist_1": DEFAULT_LIST_1,
         "watchlist_2": DEFAULT_LIST_2,
         "watchlist_3": DEFAULT_LIST_3,
-        "watchlist_inventory": DEFAULT_LIST_INVENTORY,
-        "line_token": DEFAULT_LINE_TOKEN,
-        "line_user_id": DEFAULT_LINE_USER_ID,
+        "line_token": "",
+        "line_user_id": "",
         "enable_line_notify": False,
-        "enable_daily_reports": False,
-        "etf0050_k_threshold": 20.0,
-        "etf0050_drawdown_pct": 10.0,
-        "etf0050_trigger_mode": "符合任一條件 (OR)"
+        "enable_daily_reports": False
     }
 
 def save_settings():
@@ -123,14 +104,10 @@ def save_settings():
         "watchlist_1": st.session_state.get("watchlist_1_text", DEFAULT_LIST_1),
         "watchlist_2": st.session_state.get("watchlist_2_text", DEFAULT_LIST_2),
         "watchlist_3": st.session_state.get("watchlist_3_text", DEFAULT_LIST_3),
-        "watchlist_inventory": st.session_state.get("watchlist_inventory_text", DEFAULT_LIST_INVENTORY),
-        "line_token": st.session_state.get("line_token_input") or DEFAULT_LINE_TOKEN,
-        "line_user_id": st.session_state.get("line_user_id_input") or DEFAULT_LINE_USER_ID,
+        "line_token": st.session_state.get("line_token_input", ""),
+        "line_user_id": st.session_state.get("line_user_id_input", ""),
         "enable_line_notify": st.session_state.get("enable_line_notify_input", False),
-        "enable_daily_reports": st.session_state.get("enable_daily_reports_input", False),
-        "etf0050_k_threshold": float(st.session_state.get("etf0050_k_threshold_input", 20.0)),
-        "etf0050_drawdown_pct": float(st.session_state.get("etf0050_drawdown_pct_input", 10.0)),
-        "etf0050_trigger_mode": st.session_state.get("etf0050_trigger_mode_input", "符合任一條件 (OR)")
+        "enable_daily_reports": st.session_state.get("enable_daily_reports_input", False)
     }
     try:
         with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
@@ -156,22 +133,14 @@ if 'watchlist_2_text' not in st.session_state:
     st.session_state.watchlist_2_text = settings.get("watchlist_2", DEFAULT_LIST_2)
 if 'watchlist_3_text' not in st.session_state:
     st.session_state.watchlist_3_text = settings.get("watchlist_3", DEFAULT_LIST_3)
-if 'watchlist_inventory_text' not in st.session_state:
-    st.session_state.watchlist_inventory_text = settings.get("watchlist_inventory", DEFAULT_LIST_INVENTORY)
 if 'line_token_input' not in st.session_state:
-    st.session_state.line_token_input = settings.get("line_token") or DEFAULT_LINE_TOKEN
+    st.session_state.line_token_input = settings.get("line_token", "")
 if 'line_user_id_input' not in st.session_state:
-    st.session_state.line_user_id_input = settings.get("line_user_id") or DEFAULT_LINE_USER_ID
+    st.session_state.line_user_id_input = settings.get("line_user_id", "")
 if 'enable_line_notify_input' not in st.session_state:
     st.session_state.enable_line_notify_input = settings.get("enable_line_notify", False)
 if 'enable_daily_reports_input' not in st.session_state:
     st.session_state.enable_daily_reports_input = settings.get("enable_daily_reports", False)
-if 'etf0050_k_threshold_input' not in st.session_state:
-    st.session_state.etf0050_k_threshold_input = float(settings.get("etf0050_k_threshold", 20.0))
-if 'etf0050_drawdown_pct_input' not in st.session_state:
-    st.session_state.etf0050_drawdown_pct_input = float(settings.get("etf0050_drawdown_pct", 10.0))
-if 'etf0050_trigger_mode_input' not in st.session_state:
-    st.session_state.etf0050_trigger_mode_input = settings.get("etf0050_trigger_mode", "符合任一條件 (OR)")
 
 def update_selected_from_search():
     val = st.session_state.search_ticker.strip().upper()
@@ -229,7 +198,7 @@ def build_morning_report(df_results, market_trend, group_name):
     today_str = now_tw.strftime("%Y-%m-%d")
     m_status = market_trend['status'] if market_trend else "維持觀察"
     m_advice = market_trend['advice'] if market_trend else "無大盤資料"
-    up_stocks = df_results[df_results['建議'].str.contains("買進|單筆買入|走勢向上|加碼|醞釀", na=False)] if not df_results.empty else pd.DataFrame()
+    up_stocks = df_results[df_results['建議'].str.contains("買進|走勢向上|加碼|醞釀", na=False)] if not df_results.empty else pd.DataFrame()
     items_text = [f"• {row['代碼']} {row['名稱']}: {row['建議']}" for _, row in up_stocks.head(6).iterrows()] if not up_stocks.empty else ["• 目前無多頭買進標的，多看少做。"]
     return f"🌅【雙指標系統 - 每日盤前早報】\n━━━━━━━━━━━━━━\n📅 日期：{today_str} (08:45 早報)\n📁 組合：{group_name}\n\n🧭 大盤資金水位：\n狀態：{m_status}\n指引：{m_advice}\n\n⭐ 盤前多方焦點標的：\n{chr(10).join(items_text)}\n━━━━━━━━━━━━━━\n💡 提醒：若有觸發日MACD金叉，系統將於盤中即時推播。"
 
@@ -237,7 +206,7 @@ def build_evening_report(df_results, group_name):
     now_tw = get_tw_now()
     today_str = now_tw.strftime("%Y-%m-%d")
     total_count = len(df_results)
-    buy_cnt = len(df_results[df_results['建議'].str.contains("買進|單筆買入|走勢向上|醞釀", na=False)]) if not df_results.empty else 0
+    buy_cnt = len(df_results[df_results['建議'].str.contains("買進|走勢向上|醞釀", na=False)]) if not df_results.empty else 0
     sell_cnt = len(df_results[df_results['建議'].str.contains("賣出|逃命", na=False)]) if not df_results.empty else 0
     hold_cnt = len(df_results[df_results['建議'].str.contains("續抱|核心", na=False)]) if not df_results.empty else 0
     empty_cnt = len(df_results[df_results['建議'].str.contains("空手|假金叉|突破觀察", na=False)]) if not df_results.empty else 0
@@ -245,8 +214,8 @@ def build_evening_report(df_results, group_name):
     return f"🌆【雙指標系統 - 每日盤後總結】\n━━━━━━━━━━━━━━\n📅 日期：{today_str} (13:45 盤後)\n📁 組合：{group_name} (共 {total_count} 檔)\n\n📊 盤後狀態分佈：\n🟢 買進建倉/向上：{buy_cnt} 檔\n🟢 多頭持股續抱：{hold_cnt} 檔\n🔴 賣出/逃命防守：{sell_cnt} 檔\n⚪ 空手觀望：{empty_cnt} 檔\n\n⚡ 今日關鍵動態事件：\n{chr(10).join(action_items[:6])}\n━━━━━━━━━━━━━━\n📋 完整日誌可至『深度分析』匯出 CSV 進行盤後覆盤。"
 
 def check_and_notify_signals(df_results, market_trend, group_name):
-    token = (st.session_state.line_token_input or DEFAULT_LINE_TOKEN).strip()
-    user_id = (st.session_state.line_user_id_input or DEFAULT_LINE_USER_ID).strip()
+    token = st.session_state.line_token_input.strip()
+    user_id = st.session_state.line_user_id_input.strip()
     if not token or not user_id: return
     cache = load_notified_cache()
     now_tw = get_tw_now()
@@ -256,13 +225,10 @@ def check_and_notify_signals(df_results, market_trend, group_name):
     if st.session_state.enable_line_notify_input and not df_results.empty:
         for _, row in df_results.iterrows():
             ticker, name, curr_rec, actions, price_info, reason = row['代碼'], row['名稱'], row['建議'], row['最新動態'], row['收盤價(漲跌)'], row['詳細判定原因']
-            item_cache = cache.get(ticker, {"last_rec": "", "last_gc_date": "", "last_div_date": "", "last_0050_buy_date": ""})
+            item_cache = cache.get(ticker, {"last_rec": "", "last_gc_date": "", "last_div_date": ""})
             prev_rec = item_cache.get("last_rec", "")
             
-            if "0050 單筆買入" in curr_rec and item_cache.get("last_0050_buy_date") != today_str:
-                if send_line_message(token, user_id, f"🎯【雙指標系統 - 0050 單筆買入提醒】\n標的：{ticker} {name}\n現價：{price_info}\n原因：{reason}\n時間：{now_time_str}")[0]:
-                    item_cache["last_0050_buy_date"] = today_str
-            elif "買進" in curr_rec and "買進" not in prev_rec and "醞釀" not in curr_rec:
+            if "買進" in curr_rec and "買進" not in prev_rec and "醞釀" not in curr_rec:
                 send_line_message(token, user_id, f"🟢【雙指標系統 - 買進警報】\n標的：{ticker} {name}\n現價：{price_info}\n原因：{reason}\n時間：{now_time_str}")
             elif "醞釀" in curr_rec and "醞釀" not in prev_rec:
                 send_line_message(token, user_id, f"💡【雙指標系統 - 醞釀買進預警】\n標的：{ticker} {name}\n現價：{price_info}\n原因：{reason}\n時間：{now_time_str}")
@@ -300,23 +266,9 @@ st.markdown(hide_st_style, unsafe_allow_html=True)
 # 🎯 核心決策判斷引擎：MACD + 雙向洗盤防禦 + KD提前預警 + DIF 15%衰退停利
 # ==========================================
 def evaluate_strategy_signal(
-    curr_close, prev_close, c_ma10, c_ma20, p_ma20, c_hist, c_dif, p_dif, c_k, c_d, p_k, p_d, is_buy_and_hold, was_holding=True,
-    ticker="", drawdown_from_high_pct=0.0, high_1y=0.0,
-    etf0050_k_threshold=20.0, etf0050_drawdown_pct=10.0, etf0050_trigger_mode="符合任一條件 (OR)"
+    curr_close, prev_close, c_ma10, c_ma20, p_ma20, c_hist, c_dif, p_dif, c_k, c_d, p_k, p_d, is_buy_and_hold, was_holding=True
 ):
-    if is_buy_and_hold:
-        if ticker == "0050.TW":
-            cond_k = (c_k <= etf0050_k_threshold)
-            cond_dd = (drawdown_from_high_pct >= etf0050_drawdown_pct)
-            triggered = (cond_k or cond_dd) if ("OR" in etf0050_trigger_mode) else (cond_k and cond_dd)
-            if triggered:
-                hit_reasons = []
-                if cond_k:
-                    hit_reasons.append(f"日K={c_k:.1f} (≤{etf0050_k_threshold:.0f})")
-                if cond_dd:
-                    hit_reasons.append(f"自近1年高點({high_1y:.2f})回檔 {drawdown_from_high_pct:.1f}% (≥{etf0050_drawdown_pct:.0f}%)")
-                return "🎯 0050 單筆買入 (逢低加碼)", f"【0050 單筆買入提醒】{' 且 '.join(hit_reasons)}，符合逢低單筆加碼條件！"
-            return "🔵 長期持有 (核心被動)", f"【免出場資產】定期定額續抱（目前日K={c_k:.1f}，距近1年高點回檔 {drawdown_from_high_pct:.1f}%，未達單筆買入條件）。"
+    if is_buy_and_hold: 
         return "🔵 長期持有 (核心被動)", "【免出場資產】定期定額或逢低續抱，不受短期波動影響。"
 
     is_macd_bullish = (c_hist > 0)
@@ -403,16 +355,14 @@ def get_market_trend(ticker):
     except: return None
 
 @st.cache_data(ttl=300)
-def analyze_signals_comprehensive(watchlist, etf0050_k_threshold=20.0, etf0050_drawdown_pct=10.0, etf0050_trigger_mode="符合任一條件 (OR)", inventory_tickers=()):
+def analyze_signals_comprehensive(watchlist):
     results = []
     BUY_AND_HOLD_LIST = {"SGOV", "BIL", "SHV", "00719B.TW", "0050.TW", "VOO", "QQQM", "SPY", "IVV"}
     for ticker, name in watchlist.items():
         try:
             df_d = yf.download(ticker, period="1y", interval="1d", progress=False)
-            is_in_inventory = (ticker in inventory_tickers)
-            holding_status = "📦 庫存" if is_in_inventory else "👀 非庫存"
             if df_d.empty or len(df_d) < 35:
-                results.append({"代碼": ticker, "名稱": name, "持倉狀態": holding_status, "收盤價(漲跌)": "⚠️ 無資料", "股性模式": "⚪ 未知", "股性類別": "未知", "建議": "⚪ 未知", "最新動態": "-", "詳細判定原因": "無足夠日 K 線資料", "Yahoo股市": f"https://finance.yahoo.com/quote/{ticker}"})
+                results.append({"代碼": ticker, "名稱": name, "收盤價(漲跌)": "⚠️ 無資料", "股性模式": "⚪ 未知", "股性類別": "未知", "建議": "⚪ 未知", "最新動態": "-", "詳細判定原因": "無足夠日 K 線資料", "Yahoo股市": f"https://finance.yahoo.com/quote/{ticker}"})
                 continue
             close_d = df_d['Close'][ticker] if isinstance(df_d.columns, pd.MultiIndex) else df_d['Close']
             high_d = df_d['High'][ticker] if isinstance(df_d.columns, pd.MultiIndex) else df_d['High']
@@ -449,7 +399,7 @@ def analyze_signals_comprehensive(watchlist, etf0050_k_threshold=20.0, etf0050_d
             c_k, c_d = k_d.iloc[-1], d_d.iloc[-1]
             p_k, p_d = k_d.iloc[-2], d_d.iloc[-2]
 
-            was_holding_prev = is_in_inventory
+            was_holding_prev = (prev_close > prev_ma20_d) and (prev_hist_d > 0)
 
             change_pct = ((curr_close - prev_close) / prev_close) * 100
             price_display = f"🔺 {curr_close:.2f} (+{change_pct:.2f}%)" if change_pct > 0 else f"🔻 {curr_close:.2f} ({change_pct:.2f}%)" if change_pct < 0 else f"➖ {curr_close:.2f} (0.00%)"
@@ -460,27 +410,19 @@ def analyze_signals_comprehensive(watchlist, etf0050_k_threshold=20.0, etf0050_d
             elif prev_hist_d >= 0 and curr_hist_d < 0: actions.append(f"日MACD剛死叉 ({last_date_str})")
             elif p_k <= p_d and c_k > c_d: actions.append(f"日KD剛金叉 ({last_date_str})")
 
-            high_1y = high_d.tail(250).max()
-            drawdown_from_high_pct = ((high_1y - curr_close) / high_1y) * 100 if high_1y > 0 else 0.0
-
             rec_text, detail_reason = evaluate_strategy_signal(
-                curr_close, prev_close, curr_ma10_d, curr_ma20_d, prev_ma20_d, curr_hist_d, c_dif_d, p_dif_d, c_k, c_d, p_k, p_d, is_buy_and_hold, was_holding=was_holding_prev,
-                ticker=ticker, drawdown_from_high_pct=drawdown_from_high_pct, high_1y=high_1y,
-                etf0050_k_threshold=etf0050_k_threshold, etf0050_drawdown_pct=etf0050_drawdown_pct, etf0050_trigger_mode=etf0050_trigger_mode
+                curr_close, prev_close, curr_ma10_d, curr_ma20_d, prev_ma20_d, curr_hist_d, c_dif_d, p_dif_d, c_k, c_d, p_k, p_d, is_buy_and_hold, was_holding=was_holding_prev
             )
 
-            results.append({"代碼": ticker, "名稱": name, "持倉狀態": holding_status, "收盤價(漲跌)": price_display, "股性模式": stock_profile, "股性類別": stock_category, "建議": rec_text, "最新動態": " / ".join(actions) if actions else "-", "詳細判定原因": detail_reason, "Yahoo股市": f"https://finance.yahoo.com/quote/{ticker}"})
+            results.append({"代碼": ticker, "名稱": name, "收盤價(漲跌)": price_display, "股性模式": stock_profile, "股性類別": stock_category, "建議": rec_text, "最新動態": " / ".join(actions) if actions else "-", "詳細判定原因": detail_reason, "Yahoo股市": f"https://finance.yahoo.com/quote/{ticker}"})
         except:
-            is_in_inventory = (ticker in inventory_tickers)
-            holding_status = "📦 庫存" if is_in_inventory else "👀 非庫存"
-            results.append({"代碼": ticker, "名稱": name, "持倉狀態": holding_status, "收盤價(漲跌)": "⚠️ 錯誤", "股性模式": "⚪ 異常", "股性類別": "未知", "建議": "⚪ 未知", "最新動態": "-", "詳細判定原因": "抓取異常", "Yahoo股市": f"https://finance.yahoo.com/quote/{ticker}"})
+            results.append({"代碼": ticker, "名稱": name, "收盤價(漲跌)": "⚠️ 錯誤", "股性模式": "⚪ 異常", "股性類別": "未知", "建議": "⚪ 未知", "最新動態": "-", "詳細判定原因": "抓取異常", "Yahoo股市": f"https://finance.yahoo.com/quote/{ticker}"})
             continue
 
     df_results = pd.DataFrame(results)
     if not df_results.empty:
         def get_sort_rank(row):
-            if "0050 單筆買入" in row['建議']: return 0
-            elif "買進" in row['建議'] and "醞釀" not in row['建議']: return 1
+            if "買進" in row['建議'] and "醞釀" not in row['建議']: return 1
             elif "醞釀買進" in row['建議']: return 2
             elif "續抱" in row['建議']: return 3
             elif "長期持有" in row['建議']: return 4
@@ -494,9 +436,9 @@ def analyze_signals_comprehensive(watchlist, etf0050_k_threshold=20.0, etf0050_d
     return df_results
 
 @st.cache_data(ttl=300)
-def generate_historical_signals_table(ticker, name, start_date, end_date, etf0050_k_threshold=20.0, etf0050_drawdown_pct=10.0, etf0050_trigger_mode="符合任一條件 (OR)"):
+def generate_historical_signals_table(ticker, name, start_date, end_date):
     BUY_AND_HOLD_LIST = {"SGOV", "BIL", "SHV", "00719B.TW", "0050.TW", "VOO", "QQQM", "SPY", "IVV"}
-    fetch_start = start_date - timedelta(days=380)
+    fetch_start = start_date - timedelta(days=100)
     fetch_end = end_date + timedelta(days=2)
     df_d = yf.download(ticker, start=fetch_start.strftime('%Y-%m-%d'), end=fetch_end.strftime('%Y-%m-%d'), interval="1d", progress=False)
     if df_d.empty or len(df_d) < 35: return pd.DataFrame(), None
@@ -552,13 +494,8 @@ def generate_historical_signals_table(ticker, name, start_date, end_date, etf005
         elif p_hist >= 0 and c_hist < 0: actions.append(f"日MACD剛死叉 ({date_short})")
         elif p_k <= p_d and c_k > c_d: actions.append(f"日KD剛金叉 ({date_short})")
 
-        h_1y = high.iloc[max(0, loc - 249):loc + 1].max()
-        dd_pct = ((h_1y - c_close) / h_1y) * 100 if h_1y > 0 else 0.0
-
         rec_text, detail_reason = evaluate_strategy_signal(
-            c_close, p_close, c_ma10, c_ma20, p_ma20, c_hist, c_dif, p_dif, c_k, c_d, p_k, p_d, is_buy_and_hold, was_holding=sim_holding,
-            ticker=ticker, drawdown_from_high_pct=dd_pct, high_1y=h_1y,
-            etf0050_k_threshold=etf0050_k_threshold, etf0050_drawdown_pct=etf0050_drawdown_pct, etf0050_trigger_mode=etf0050_trigger_mode
+            c_close, p_close, c_ma10, c_ma20, p_ma20, c_hist, c_dif, p_dif, c_k, c_d, p_k, p_d, is_buy_and_hold, was_holding=sim_holding
         )
 
         if "買進" in rec_text or "續抱" in rec_text: sim_holding = True
@@ -580,8 +517,7 @@ def generate_summary_insight(df_records, ticker, name, ma5_info=None):
     latest_row = df_records.iloc[0]
     latest_date, latest_rec, latest_reason, latest_profile = latest_row['日期'], latest_row['建議'], latest_row['詳細判定原因'], latest_row['股性模式']
     
-    if "0050 單筆買入" in latest_rec: trend_status, box_color, border_color = "🎯 0050 單筆買入時機（逢低加碼）", "#e8f5e9", "#2e7d32"
-    elif "買進" in latest_rec and "醞釀" not in latest_rec: trend_status, box_color, border_color = "🟢 多頭啟動（買進建倉）", "#e8f5e9", "#81c784"
+    if "買進" in latest_rec and "醞釀" not in latest_rec: trend_status, box_color, border_color = "🟢 多頭啟動（買進建倉）", "#e8f5e9", "#81c784"
     elif "醞釀買進" in latest_rec: trend_status, box_color, border_color = "💡 醞釀轉強（準備試單）", "#e8f5e9", "#81c784"
     elif "續抱" in latest_rec: trend_status, box_color, border_color = "🟢 多頭趨勢（持股續抱）", "#e8f5e9", "#81c784"
     elif "賣出" in latest_rec: trend_status, box_color, border_color = "🔴 空頭趨勢（停利/停損出清）", "#ffebee", "#ef9a9a"
@@ -604,15 +540,9 @@ def style_dataframe(df):
             elif '🔻' in val: return 'color: #00c853; font-weight: bold;'
             elif '⚠️' in val: return 'color: #f57c00; font-weight: bold;'
         return ''
-    def color_holding(val):
-        if isinstance(val, str):
-            if '庫存' in val and '非庫存' not in val: return 'color: #1565c0; font-weight: bold; background-color: #e3f2fd;'
-            elif '非庫存' in val: return 'color: #616161;'
-        return ''
     def color_rec(val):
         if isinstance(val, str):
-            if '0050 單筆買入' in val: return 'color: #ffffff; font-weight: bold; background-color: #2e7d32;'
-            elif '買進' in val and '醞釀' not in val: return 'color: #1b5e20; font-weight: bold; background-color: #a5d6a7;'
+            if '買進' in val and '醞釀' not in val: return 'color: #1b5e20; font-weight: bold; background-color: #a5d6a7;'
             elif '醞釀買進' in val: return 'color: #1b5e20; font-weight: bold; background-color: #c8e6c9;'
             elif '續抱' in val: return 'color: #1b5e20; font-weight: bold; background-color: #c8e6c9;'
             elif '賣出' in val: return 'color: #b71c1c; font-weight: bold; background-color: #ffcdd2;'
@@ -624,11 +554,9 @@ def style_dataframe(df):
         return ''
     res = df.style
     if hasattr(res, "map"):
-        if '持倉狀態' in df.columns: res = res.map(color_holding, subset=['持倉狀態'])
         if '收盤價(漲跌)' in df.columns: res = res.map(color_trend, subset=['收盤價(漲跌)'])
         if '建議' in df.columns: res = res.map(color_rec, subset=['建議'])
     else:
-        if '持倉狀態' in df.columns: res = res.applymap(color_holding, subset=['持倉狀態'])
         if '收盤價(漲跌)' in df.columns: res = res.applymap(color_trend, subset=['收盤價(漲跌)'])
         if '建議' in df.columns: res = res.applymap(color_rec, subset=['建議'])
     return res
@@ -664,30 +592,18 @@ def get_chart_data(ticker, interval, period):
 # ==========================================
 tab_dashboard, tab_rules, tab_settings, tab_war_room, tab_deep_dive = st.tabs(["📊 看盤儀表板", "📖 策略判斷原則", "⚙️ 自選股編輯", "⚔️ 買賣戰情室", "🔬 深度分析"])
 
-INVENTORY_WATCHLIST = parse_watchlist(st.session_state.watchlist_inventory_text)
-INVENTORY_TICKERS = tuple(sorted(INVENTORY_WATCHLIST.keys()))
-
-if st.session_state.current_group_choice == "庫存": ACTIVE_WATCHLIST = INVENTORY_WATCHLIST
-elif st.session_state.current_group_choice == "自選股 2": ACTIVE_WATCHLIST = parse_watchlist(st.session_state.watchlist_2_text)
+if st.session_state.current_group_choice == "自選股 2": ACTIVE_WATCHLIST = parse_watchlist(st.session_state.watchlist_2_text)
 elif st.session_state.current_group_choice == "自選股 3": ACTIVE_WATCHLIST = parse_watchlist(st.session_state.watchlist_3_text)
 else: ACTIVE_WATCHLIST = parse_watchlist(st.session_state.watchlist_1_text)
 
-display_df = analyze_signals_comprehensive(
-    ACTIVE_WATCHLIST,
-    st.session_state.etf0050_k_threshold_input,
-    st.session_state.etf0050_drawdown_pct_input,
-    st.session_state.etf0050_trigger_mode_input,
-    inventory_tickers=INVENTORY_TICKERS
-)
+display_df = analyze_signals_comprehensive(ACTIVE_WATCHLIST)
 market_trend_global = get_market_trend(st.session_state.market_ticker_input)
 check_and_notify_signals(display_df, market_trend_global, st.session_state.current_group_choice)
 
 with tab_dashboard:
     col_group, col_empty = st.columns([1, 1])
     with col_group:
-        group_options = ["自選股 1", "自選股 2", "自選股 3", "庫存"]
-        curr_grp_idx = group_options.index(st.session_state.current_group_choice) if st.session_state.current_group_choice in group_options else 0
-        current_group = st.radio("📌 選擇自選股組合：", group_options, index=curr_grp_idx, horizontal=True)
+        current_group = st.radio("📌 選擇自選股組合：", ["自選股 1", "自選股 2", "自選股 3"], index=["自選股 1", "自選股 2", "自選股 3"].index(st.session_state.current_group_choice), horizontal=True)
         if current_group != st.session_state.current_group_choice:
             st.session_state.current_group_choice = current_group
             save_settings()
@@ -699,23 +615,14 @@ with tab_dashboard:
     with col_temp2: st.text_input("輸入名稱 (選填)", key="search_name", on_change=update_other_inputs)
     if temp_ticker:
         tmp_t, tmp_n = temp_ticker, temp_name
-        temp_df = analyze_signals_comprehensive(
-            {tmp_t: tmp_n if tmp_n else tmp_t},
-            st.session_state.etf0050_k_threshold_input,
-            st.session_state.etf0050_drawdown_pct_input,
-            st.session_state.etf0050_trigger_mode_input,
-            inventory_tickers=INVENTORY_TICKERS
-        )
+        temp_df = analyze_signals_comprehensive({tmp_t: tmp_n if tmp_n else tmp_t})
         if not temp_df.empty and "⚠️ 無資料" not in temp_df.iloc[0]['收盤價(漲跌)']:
             st.dataframe(style_dataframe(temp_df.drop(columns=['股性類別'])), use_container_width=True)
             with col_temp3:
                 st.write("")
                 st.write("")
                 if st.button(f"➕ 加入到當前【{st.session_state.current_group_choice}】"):
-                    if st.session_state.current_group_choice == "庫存": target_key = "watchlist_inventory_text"
-                    elif st.session_state.current_group_choice == "自選股 2": target_key = "watchlist_2_text"
-                    elif st.session_state.current_group_choice == "自選股 3": target_key = "watchlist_3_text"
-                    else: target_key = "watchlist_1_text"
+                    target_key = "watchlist_1_text" if st.session_state.current_group_choice == "自選股 1" else ("watchlist_2_text" if st.session_state.current_group_choice == "自選股 2" else "watchlist_3_text")
                     if tmp_t not in st.session_state[target_key]:
                         st.session_state[target_key] += f"\n{tmp_t},{tmp_n if tmp_n else tmp_t}"
                         save_settings()
@@ -728,7 +635,7 @@ with tab_dashboard:
         st.subheader(f"📊 【{st.session_state.current_group_choice}】狀態總覽")
         filter_opt = st.radio("🔍 狀態篩選：", ["👀 顯示全部", "🟢 買進建倉(含預警)", "🟢 波段續抱", "🔵 長期持有", "🔴 賣出(空頭成型)", "⚠️ 假金叉/死叉防禦", "⚪ 空手觀望", "⚡ 剛發生交叉"], index=0, horizontal=True)
         filtered_df = display_df.copy()
-        if filter_opt == "🟢 買進建倉(含預警)": filtered_df = filtered_df[filtered_df['建議'].str.contains("買進|單筆買入", na=False)]
+        if filter_opt == "🟢 買進建倉(含預警)": filtered_df = filtered_df[filtered_df['建議'].str.contains("買進", na=False)]
         elif filter_opt == "🟢 波段續抱": filtered_df = filtered_df[filtered_df['建議'].str.contains("續抱", na=False)]
         elif filter_opt == "🔵 長期持有": filtered_df = filtered_df[filtered_df['建議'].str.contains("長期持有", na=False)]
         elif filter_opt == "🔴 賣出(空頭成型)": filtered_df = filtered_df[filtered_df['建議'].str.contains("賣出", na=False)]
@@ -738,34 +645,8 @@ with tab_dashboard:
 
         if filtered_df.empty: st.info("無符合標的。")
         else:
-            df_inv = filtered_df[filtered_df['持倉狀態'] == "📦 庫存"].reset_index(drop=True)
-            df_non_inv = filtered_df[filtered_df['持倉狀態'] == "👀 非庫存"].reset_index(drop=True)
-
-            st.markdown(f"#### 📦 庫存持股建議（已持有：續抱 / 賣出 / 0050加碼）({len(df_inv)} 檔)")
-            if df_inv.empty:
-                st.info("此組合中目前無符合條件的庫存標的（可至『⚙️ 自選股編輯 → 📦 庫存』維護持股清單）。")
-            else:
-                ev_inv = st.dataframe(
-                    style_dataframe(df_inv.drop(columns=['股性類別'])),
-                    use_container_width=True, on_select="rerun", selection_mode="single-row", key="table_inv",
-                    column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
-                )
-                if ev_inv.selection.rows:
-                    st.session_state.selected_ticker = df_inv.iloc[ev_inv.selection.rows[0]]['代碼']
-
-            if st.session_state.current_group_choice != "庫存":
-                st.write("")
-                st.markdown(f"#### 👀 非庫存觀察建議（空手：買進 / 醞釀 / 觀望）({len(df_non_inv)} 檔)")
-                if df_non_inv.empty:
-                    st.info("目前無符合條件的非庫存標的。")
-                else:
-                    ev_non_inv = st.dataframe(
-                        style_dataframe(df_non_inv.drop(columns=['股性類別'])),
-                        use_container_width=True, on_select="rerun", selection_mode="single-row", key="table_non_inv",
-                        column_config={"Yahoo股市": st.column_config.LinkColumn("🔗 Yahoo股市", display_text="點擊前往")}
-                    )
-                    if ev_non_inv.selection.rows:
-                        st.session_state.selected_ticker = df_non_inv.iloc[ev_non_inv.selection.rows[0]]['代碼']
+            ev_table = st.dataframe(style_dataframe(filtered_df.drop(columns=['股性類別'])), use_container_width=True, on_select="rerun", selection_mode="single-row", key="table_main")
+            if ev_table.selection.rows: st.session_state.selected_ticker = filtered_df.iloc[ev_table.selection.rows[0]]['代碼']
 
     st.divider()
     col_title, col_toggle = st.columns([3, 2])
@@ -853,21 +734,11 @@ with tab_rules:
     7. **🟡 單日假突破過濾 (2日確認法)**
        * **觸發條件**：雖然 MACD 翻紅且今日站上月線，但昨日收盤價卻在月線之下。
        * **動作**：避免單日誘多陷阱，需等待明日收盤再次確認，今日判定為「突破觀察」暫不買進。
-    8. **🎯 0050 單筆買入提醒 (逢低加碼)**
-       * **觸發條件**：`0050.TW` 維持「免出場長期持有」原則，當 **日 K 值 ≤ 設定門檻（預設 20）** 或 **自近 1 年高點回檔 ≥ 設定幅度（預設 10%）** 時觸發（可在『⚙️ 自選股編輯』調整門檻與 AND/OR 條件）。
-       * **動作**：標示為「🎯 0050 單筆買入 (逢低加碼)」並發送 LINE 即時提醒，平時則維持「🔵 長期持有 (核心被動)」，絕不觸發賣出訊號。
-    9. **📦 庫存 & 👀 非庫存分流建議**
-       * **📦 庫存（已持有）**：凡列入『⚙️ 自選股編輯 → 📦 庫存』的標的，系統一律以持股視角判斷，只給出 **波段續抱 / 震盪續抱 / 賣出 / 0050加碼** 等持股管理指令。
-       * **👀 非庫存（空手）**：未在庫存清單中的標的，系統一律以空手視角判斷，只給出 **買進 / 醞釀買進 / 突破觀察 / 假金叉排除 / 空手觀望** 等進場篩選指令，避免對未持股發出賣出雜訊。
     """)
 
 with tab_settings:
-    st.subheader("⚙️ 編輯自選股清單（含庫存持股管理）")
-    edit_tab_inv, edit_tab1, edit_tab2, edit_tab3 = st.tabs(["📦 庫存 (實際持股)", "📁 自選股 1 (標準預設)", "📁 自選股 2", "📁 自選股 3"])
-    with edit_tab_inv:
-        st.caption("💡 凡列入此「庫存」清單的標的，系統在所有組合與戰情室中皆會自動以【📦 庫存】身份給予「續抱 / 賣出」建議；未列入者則以【👀 非庫存】身份給予「買進 / 醞釀 / 觀望」建議。")
-        u_input_inv = st.text_area("📦 編輯庫存持股清單 (格式：代碼,名稱)：", st.session_state.watchlist_inventory_text, height=300, key="text_edit_inv")
-        if u_input_inv != st.session_state.watchlist_inventory_text: st.session_state.watchlist_inventory_text = u_input_inv; save_settings()
+    st.subheader("⚙️ 編輯自選股清單")
+    edit_tab1, edit_tab2, edit_tab3 = st.tabs(["📁 自選股 1 (標準預設)", "📁 自選股 2", "📁 自選股 3"])
     with edit_tab1:
         u_input1 = st.text_area("📝 編輯自選股 1 清單：", st.session_state.watchlist_1_text, height=300, key="text_edit_1")
         if u_input1 != st.session_state.watchlist_1_text: st.session_state.watchlist_1_text = u_input1; save_settings()
@@ -877,16 +748,6 @@ with tab_settings:
     with edit_tab3:
         u_input3 = st.text_area("📝 編輯自選股 3 清單：", st.session_state.watchlist_3_text, height=300, key="text_edit_3")
         if u_input3 != st.session_state.watchlist_3_text: st.session_state.watchlist_3_text = u_input3; save_settings()
-
-    st.divider()
-    st.subheader("🎯 0050 單筆買入提醒條件設定")
-    col_0050_1, col_0050_2, col_0050_3 = st.columns([1, 1, 1])
-    with col_0050_1:
-        st.number_input("日 K 值門檻 (≤ 此值觸發，經典為 20)：", min_value=5.0, max_value=50.0, step=1.0, key="etf0050_k_threshold_input", on_change=update_other_inputs)
-    with col_0050_2:
-        st.number_input("自近 1 年高點回檔幅度 % (≥ 此值觸發)：", min_value=3.0, max_value=40.0, step=1.0, key="etf0050_drawdown_pct_input", on_change=update_other_inputs)
-    with col_0050_3:
-        st.selectbox("條件觸發方式：", ["符合任一條件 (OR)", "同時符合 (AND)"], key="etf0050_trigger_mode_input", on_change=update_other_inputs)
 
     st.divider()
     st.subheader("🔔 LINE 即時通知與定時早晚報設定")
@@ -925,6 +786,12 @@ with tab_war_room:
     st.subheader(f"⚔️ 買賣戰情室【{st.session_state.current_group_choice}】 (MACD 搭配雙向濾網版)")
     if display_df.empty: st.warning(f"⚠️【{st.session_state.current_group_choice}】目前為空。")
     else:
+        df_buy = display_df[display_df['建議'].str.contains("買進", na=False)].reset_index(drop=True)
+        df_hold = display_df[display_df['建議'].str.contains("波段續抱|震盪續抱", na=False)].reset_index(drop=True)
+        df_sell = display_df[display_df['建議'].str.contains("賣出", na=False)].reset_index(drop=True)
+        df_fake = display_df[display_df['建議'].str.contains("假金叉排除|突破觀察", na=False)].reset_index(drop=True)
+        df_empty = display_df[display_df['建議'].str.contains("空頭格局", na=False)].reset_index(drop=True)
+
         today_str, grp_name_clean = get_tw_now().strftime('%Y%m%d'), st.session_state.current_group_choice.replace(" ", "")
         def render_section_with_export(title_text, df_sec, key_prefix):
             col_t, col_b = st.columns([4, 1])
@@ -932,48 +799,25 @@ with tab_war_room:
             with col_b:
                 if not df_sec.empty: st.download_button("📥 匯出當日報表", df_sec.to_csv(index=False).encode('utf-8-sig'), f"戰情室_{key_prefix}_{grp_name_clean}_{today_str}.csv", "text/csv", key=f"btn_exp_{key_prefix}")
 
-        df_inv_all = display_df[display_df['持倉狀態'] == "📦 庫存"].reset_index(drop=True)
-        df_non_inv_all = display_df[display_df['持倉狀態'] == "👀 非庫存"].reset_index(drop=True)
-
-        # ==================== 區塊一：📦 庫存建議 ====================
-        st.markdown(f"### 📦 庫存持股建議（共 {len(df_inv_all)} 檔）")
-        if df_inv_all.empty:
-            st.info("當前組合無庫存持股標的。")
-        else:
-            df_inv_sell = df_inv_all[df_inv_all['建議'].str.contains("賣出", na=False)].reset_index(drop=True)
-            df_inv_add = df_inv_all[df_inv_all['建議'].str.contains("單筆買入", na=False)].reset_index(drop=True)
-            df_inv_hold = df_inv_all[df_inv_all['建議'].str.contains("波段續抱|震盪續抱|長期持有", na=False)].reset_index(drop=True)
-
-            if not df_inv_sell.empty:
-                render_section_with_export(f"🔴 庫存出場警報（死叉 / 破線 / DIF反轉）：賣出停利停損 ({len(df_inv_sell)})", df_inv_sell, "庫存賣出")
-                st.dataframe(style_dataframe(df_inv_sell.drop(columns=['股性類別'])), use_container_width=True)
-            if not df_inv_add.empty:
-                render_section_with_export(f"🎯 庫存逢低加碼（0050 單筆買入）：加碼機會 ({len(df_inv_add)})", df_inv_add, "庫存加碼")
-                st.dataframe(style_dataframe(df_inv_add.drop(columns=['股性類別'])), use_container_width=True)
-            if not df_inv_hold.empty:
-                render_section_with_export(f"🟢 庫存安全續抱（多頭續抱 / 假死叉防禦 / 核心被動）：安心續抱 ({len(df_inv_hold)})", df_inv_hold, "庫存續抱")
-                st.dataframe(style_dataframe(df_inv_hold.drop(columns=['股性類別'])), use_container_width=True)
-
-        # ==================== 區塊二：👀 非庫存建議 ====================
-        if st.session_state.current_group_choice != "庫存":
+        if not df_buy.empty:
+            render_section_with_export(f"🚀 強勢啟動（金叉且站上月線）：🟢 買進建倉 ({len(df_buy)})", df_buy, "買進特區")
+            st.dataframe(style_dataframe(df_buy.drop(columns=['股性類別'])), use_container_width=True)
             st.divider()
-            st.markdown(f"### 👀 非庫存觀察建議（共 {len(df_non_inv_all)} 檔）")
-            if df_non_inv_all.empty:
-                st.info("當前組合無非庫存標的。")
-            else:
-                df_non_buy = df_non_inv_all[df_non_inv_all['建議'].str.contains("買進|單筆買入", na=False)].reset_index(drop=True)
-                df_non_fake = df_non_inv_all[df_non_inv_all['建議'].str.contains("假金叉排除|突破觀察", na=False)].reset_index(drop=True)
-                df_non_empty = df_non_inv_all[df_non_inv_all['建議'].str.contains("空頭格局|長期持有", na=False)].reset_index(drop=True)
-
-                if not df_non_buy.empty:
-                    render_section_with_export(f"🚀 非庫存買進機會（金叉站穩 / KD預警 / 0050加碼）：進場建倉 ({len(df_non_buy)})", df_non_buy, "非庫存買進")
-                    st.dataframe(style_dataframe(df_non_buy.drop(columns=['股性類別'])), use_container_width=True)
-                if not df_non_fake.empty:
-                    render_section_with_export(f"⚠️ 洗盤陷阱防禦（假金叉排除 / 單日假突破觀察）：暫不追高 ({len(df_non_fake)})", df_non_fake, "非庫存假訊號")
-                    st.dataframe(style_dataframe(df_non_fake.drop(columns=['股性類別'])), use_container_width=True)
-                if not df_non_empty.empty:
-                    render_section_with_export(f"⚪ 空手等待區（空頭格局 / 核心被動觀察）：耐心等待 ({len(df_non_empty)})", df_non_empty, "非庫存觀望")
-                    st.dataframe(style_dataframe(df_non_empty.drop(columns=['股性類別'])), use_container_width=True)
+        if not df_hold.empty:
+            render_section_with_export(f"🟢 多頭格局（含假死叉防禦）：🟢 波段續抱 ({len(df_hold)})", df_hold, "波段續抱")
+            st.dataframe(style_dataframe(df_hold.drop(columns=['股性類別'])), use_container_width=True)
+            st.divider()
+        if not df_sell.empty:
+            render_section_with_export(f"🔴 動能反轉（死叉或跌破月線或DIF反轉）：🔴 停利/停損賣出 ({len(df_sell)})", df_sell, "破位出場")
+            st.dataframe(style_dataframe(df_sell.drop(columns=['股性類別'])), use_container_width=True)
+            st.divider()
+        if not df_fake.empty:
+            render_section_with_export(f"⚠️ 洗盤陷阱防禦（防假金叉與單日假突破）：⚠️ 假訊號排除 ({len(df_fake)})", df_fake, "假金叉排除")
+            st.dataframe(style_dataframe(df_fake.drop(columns=['股性類別'])), use_container_width=True)
+            st.divider()
+        if not df_empty.empty:
+            render_section_with_export(f"⚪ 空頭架構：⚪ 空手觀望 ({len(df_empty)})", df_empty, "空手觀望")
+            st.dataframe(style_dataframe(df_empty.drop(columns=['股性類別'])), use_container_width=True)
 
 with tab_deep_dive:
     st.subheader("🔬 個股走勢深度分析")
@@ -998,12 +842,7 @@ with tab_deep_dive:
     if start_date > end_date: st.error("⚠️ 起始時間必須早於或等於結束時間。")
     elif target_ticker:
         with st.spinner(f"正在逐日回溯 {target_ticker}..."):
-            hist_signals_df, ma5_info = generate_historical_signals_table(
-                target_ticker, target_name, start_date, end_date,
-                st.session_state.etf0050_k_threshold_input,
-                st.session_state.etf0050_drawdown_pct_input,
-                st.session_state.etf0050_trigger_mode_input
-            )
+            hist_signals_df, ma5_info = generate_historical_signals_table(target_ticker, target_name, start_date, end_date)
         if hist_signals_df.empty: st.warning("⚠️ 區間內無資料。")
         else:
             col_dh_title, col_dh_btn = st.columns([4, 1])
