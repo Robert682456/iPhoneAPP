@@ -90,6 +90,9 @@ def load_settings():
                 if not data.get("line_user_id"):
                     data["line_user_id"] = DEFAULT_LINE_USER_ID
                 data.setdefault("watchlist_inventory", DEFAULT_LIST_INVENTORY)
+                # 強制設為常開，避免舊設定檔殘留 False
+                data["enable_line_notify"] = True
+                data["enable_daily_reports"] = True
                 return data
         except Exception:
             pass
@@ -104,8 +107,8 @@ def load_settings():
         "watchlist_inventory": DEFAULT_LIST_INVENTORY,
         "line_token": DEFAULT_LINE_TOKEN,
         "line_user_id": DEFAULT_LINE_USER_ID,
-        "enable_line_notify": False,
-        "enable_daily_reports": False
+        "enable_line_notify": True,
+        "enable_daily_reports": True
     }
 
 def save_settings():
@@ -120,8 +123,8 @@ def save_settings():
         "watchlist_inventory": st.session_state.get("watchlist_inventory_text", DEFAULT_LIST_INVENTORY),
         "line_token": st.session_state.get("line_token_input") or DEFAULT_LINE_TOKEN,
         "line_user_id": st.session_state.get("line_user_id_input") or DEFAULT_LINE_USER_ID,
-        "enable_line_notify": st.session_state.get("enable_line_notify_input", False),
-        "enable_daily_reports": st.session_state.get("enable_daily_reports_input", False)
+        "enable_line_notify": st.session_state.get("enable_line_notify_input", True),
+        "enable_daily_reports": st.session_state.get("enable_daily_reports_input", True)
     }
     try:
         with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
@@ -154,9 +157,9 @@ if 'line_token_input' not in st.session_state:
 if 'line_user_id_input' not in st.session_state:
     st.session_state.line_user_id_input = settings.get("line_user_id") or DEFAULT_LINE_USER_ID
 if 'enable_line_notify_input' not in st.session_state:
-    st.session_state.enable_line_notify_input = settings.get("enable_line_notify", False)
+    st.session_state.enable_line_notify_input = settings.get("enable_line_notify", True)
 if 'enable_daily_reports_input' not in st.session_state:
-    st.session_state.enable_daily_reports_input = settings.get("enable_daily_reports", False)
+    st.session_state.enable_daily_reports_input = settings.get("enable_daily_reports", True)
 
 def update_selected_from_search():
     val = st.session_state.search_ticker.strip().upper()
@@ -847,7 +850,7 @@ with tab_settings:
     st.info("📌 目前觸發條件：**日 MACD 柱狀由綠翻紅（黃金交叉），且股價站上日 20MA (月線)**。觸發時將顯示『🎯 0050 單筆買入 (MACD金叉+站上月線)』並推播 LINE 提醒。")
 
     st.divider()
-    st.subheader("🔔 LINE 即時通知與定時早晚報設定")
+    st.subheader("🔔 LINE 即時通知與定時早晚報設定（已設為常開）")
     col_l1, col_l2 = st.columns([1, 1])
     with col_l1:
         st.checkbox("啟用【盤中關鍵訊號即時推播】", value=st.session_state.enable_line_notify_input, key="enable_line_notify_input", on_change=update_other_inputs)
